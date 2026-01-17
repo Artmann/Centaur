@@ -11,7 +11,7 @@ public class ScreenBufferTests
         var buffer = new ScreenBuffer(80, 24);
 
         Assert.Equal(80, buffer.columns);
-        Assert.Equal(24, buffer.Rows);
+        Assert.Equal(24, buffer.rows);
     }
 
     [Fact]

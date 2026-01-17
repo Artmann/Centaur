@@ -1,3 +1,4 @@
+using System.Reflection;
 using SkiaSharp;
 using Centaur.Core.Terminal;
 
@@ -13,10 +14,9 @@ public class TerminalRenderer : IDisposable
     public float cellWidth { get; }
     public float cellHeight { get; }
 
-    public TerminalRenderer(string fontFamily = "Cascadia Mono", float fontSize = 14f)
+    public TerminalRenderer(float fontSize = 14f)
     {
-        typeface = SKTypeface.FromFamilyName(fontFamily, SKFontStyle.Normal)
-            ?? SKTypeface.Default;
+        typeface = LoadEmbeddedFont() ?? SKTypeface.Default;
         font = new SKFont(typeface, fontSize);
 
         textPaint = new SKPaint
@@ -38,7 +38,7 @@ public class TerminalRenderer : IDisposable
     {
         canvas.Clear(SKColors.Black);
 
-        for (var y = 0; y < buffer.Rows; y++)
+        for (var y = 0; y < buffer.rows; y++)
         {
             for (var x = 0; x < buffer.columns; x++)
             {
@@ -75,5 +75,13 @@ public class TerminalRenderer : IDisposable
         backgroundPaint.Dispose();
         font.Dispose();
         typeface.Dispose();
+    }
+
+    static SKTypeface? LoadEmbeddedFont()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var resourceName = "Centaur.Rendering.Fonts.JetBrainsMono-Regular.ttf";
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        return stream != null ? SKTypeface.FromStream(stream) : null;
     }
 }
