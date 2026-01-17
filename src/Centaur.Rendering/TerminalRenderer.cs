@@ -1,0 +1,79 @@
+using SkiaSharp;
+using Centaur.Core.Terminal;
+
+namespace Centaur.Rendering;
+
+public class TerminalRenderer : IDisposable
+{
+    readonly SKTypeface typeface;
+    readonly SKFont font;
+    readonly SKPaint textPaint;
+    readonly SKPaint backgroundPaint;
+
+    public float cellWidth { get; }
+    public float cellHeight { get; }
+
+    public TerminalRenderer(string fontFamily = "Cascadia Mono", float fontSize = 14f)
+    {
+        typeface = SKTypeface.FromFamilyName(fontFamily, SKFontStyle.Normal)
+            ?? SKTypeface.Default;
+        font = new SKFont(typeface, fontSize);
+
+        textPaint = new SKPaint
+        {
+            Color = SKColors.White,
+            IsAntialias = true
+        };
+
+        backgroundPaint = new SKPaint
+        {
+            Color = SKColors.Black
+        };
+
+        cellWidth = font.MeasureText("M");
+        cellHeight = fontSize * 1.2f;
+    }
+
+    public void Render(SKCanvas canvas, ScreenBuffer buffer)
+    {
+        canvas.Clear(SKColors.Black);
+
+        for (var y = 0; y < buffer.Rows; y++)
+        {
+            for (var x = 0; x < buffer.columns; x++)
+            {
+                var cell = buffer[x, y];
+                var px = x * cellWidth;
+                var py = y * cellHeight;
+
+                // Draw background if not default
+                if (cell.background != 0xFF000000)
+                {
+                    backgroundPaint.Color = new SKColor(cell.background);
+                    canvas.DrawRect(px, py, cellWidth, cellHeight, backgroundPaint);
+                }
+
+                // Draw character
+                if (cell.character != ' ')
+                {
+                    textPaint.Color = new SKColor(cell.foreground);
+                    canvas.DrawText(
+                        cell.character.ToString(),
+                        px,
+                        py + cellHeight - (cellHeight - font.Size) / 2,
+                        font,
+                        textPaint
+                    );
+                }
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        textPaint.Dispose();
+        backgroundPaint.Dispose();
+        font.Dispose();
+        typeface.Dispose();
+    }
+}

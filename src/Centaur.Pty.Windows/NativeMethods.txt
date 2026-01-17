@@ -1,0 +1,8 @@
+CreatePseudoConsole
+ClosePseudoConsole
+ResizePseudoConsole
+CreateProcess
+InitializeProcThreadAttributeList
+UpdateProcThreadAttribute
+DeleteProcThreadAttributeList
+CloseHandle
