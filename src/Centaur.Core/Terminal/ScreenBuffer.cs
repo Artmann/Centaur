@@ -28,7 +28,9 @@ public class ScreenBuffer
         set
         {
             if (x >= 0 && x < columns && y >= 0 && y < rows)
+            {
                 cells[y * columns + x] = value;
+            }
         }
     }
 
@@ -48,16 +50,34 @@ public class ScreenBuffer
         }
         if (cursorY >= rows)
         {
-            ScrollUp();
+            ScrollUp(1);
             cursorY = rows - 1;
         }
         this[cursorX, cursorY] = new Cell(c);
         cursorX++;
     }
 
-    void ScrollUp()
+    public void ScrollUp(int lines = 1)
     {
-        Array.Copy(cells, columns, cells, 0, columns * (rows - 1));
-        Array.Fill(cells, defaultCell, columns * (rows - 1), columns);
+        if (lines <= 0) return;
+        if (lines >= rows)
+        {
+            Array.Fill(cells, defaultCell);
+            return;
+        }
+        Array.Copy(cells, columns * lines, cells, 0, columns * (rows - lines));
+        Array.Fill(cells, defaultCell, columns * (rows - lines), columns * lines);
+    }
+
+    public void ScrollDown(int lines = 1)
+    {
+        if (lines <= 0) return;
+        if (lines >= rows)
+        {
+            Array.Fill(cells, defaultCell);
+            return;
+        }
+        Array.Copy(cells, 0, cells, columns * lines, columns * (rows - lines));
+        Array.Fill(cells, defaultCell, 0, columns * lines);
     }
 }

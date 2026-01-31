@@ -46,7 +46,7 @@ public class TerminalRenderer : IDisposable
                 var px = x * cellWidth;
                 var py = y * cellHeight;
 
-                // Draw background if not default
+                // Draw background if not default black
                 if (cell.background != 0xFF000000)
                 {
                     backgroundPaint.Color = new SKColor(cell.background);

@@ -1,3 +1,4 @@
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -5,7 +6,10 @@ using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
+using Avalonia.Threading;
+using Centaur.Core.Pty;
 using Centaur.Core.Terminal;
+using Centaur.Pty.Windows;
 using Centaur.Rendering;
 using SkiaSharp;
 
@@ -15,82 +19,210 @@ public class TerminalControl : Control
 {
     readonly ScreenBuffer buffer;
     readonly TerminalRenderer renderer;
+    readonly VtParser parser;
+    readonly object bufferLock = new();
+    readonly DispatcherTimer renderTimer;
+
+    IPtyConnection? pty;
+    CancellationTokenSource? readCts;
+    Task? readTask;
+    volatile bool hasPendingUpdates;
 
     public TerminalControl()
     {
         buffer = new ScreenBuffer(80, 24);
         renderer = new TerminalRenderer();
+        parser = new VtParser(buffer);
 
         Focusable = true;
         ClipToBounds = true;
+
+        // 16ms timer for ~60fps frame pacing
+        renderTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(16)
+        };
+        renderTimer.Tick += OnRenderTimerTick;
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        renderTimer.Start();
+        StartPty();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        renderTimer.Stop();
+        StopPty();
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    void OnRenderTimerTick(object? sender, EventArgs e)
+    {
+        if (hasPendingUpdates)
+        {
+            hasPendingUpdates = false;
+            InvalidateVisual();
+        }
+    }
+
+    async void StartPty()
+    {
+        try
+        {
+            var options = new PtyOptions(
+                executable: "powershell.exe",
+                columns: buffer.columns,
+                rows: buffer.rows
+            );
+
+            pty = await ConPtyConnection.CreateAsync(options);
+            readCts = new CancellationTokenSource();
+            readTask = Task.Run(() => ReadLoopAsync(readCts.Token));
+        }
+        catch (Exception ex)
+        {
+            // Write error to buffer for debugging
+            foreach (var c in $"PTY Error: {ex.Message}")
+                buffer.Write(c);
+            InvalidateVisual();
+        }
+    }
+
+    async void StopPty()
+    {
+        readCts?.Cancel();
+        if (readTask != null)
+        {
+            try { await readTask; } catch { }
+        }
+        if (pty != null)
+        {
+            await pty.DisposeAsync();
+            pty = null;
+        }
+        readCts?.Dispose();
+        readCts = null;
+    }
+
+    async Task ReadLoopAsync(CancellationToken ct)
+    {
+        if (pty == null) return;
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                var result = await pty.Output.ReadAsync(ct);
+                var ptyBuffer = result.Buffer;
+
+                lock (bufferLock)
+                {
+                    foreach (var segment in ptyBuffer)
+                    {
+                        parser.Process(segment.Span);
+                    }
+                }
+
+                pty.Output.AdvanceTo(ptyBuffer.End);
+
+                // Signal that we have updates - timer will coalesce and render
+                hasPendingUpdates = true;
+
+                if (result.IsCompleted) break;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { }
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
 
-        if (e.Key == Key.Enter)
+        if (pty == null) return;
+
+        byte[]? bytes = null;
+
+        // Handle Ctrl+key combinations
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
-            buffer.cursorX = 0;
-            buffer.cursorY++;
-            if (buffer.cursorY >= buffer.rows)
+            if (e.Key >= Key.A && e.Key <= Key.Z)
             {
-                buffer.cursorY = buffer.rows - 1;
-                ScrollUp();
-            }
-        }
-        else if (e.Key == Key.Back)
-        {
-            if (buffer.cursorX > 0)
-            {
-                buffer.cursorX--;
-                buffer[buffer.cursorX, buffer.cursorY] = new Cell(' ');
+                // Ctrl+A = 0x01, Ctrl+B = 0x02, etc.
+                bytes = new byte[] { (byte)(e.Key - Key.A + 1) };
             }
         }
         else
         {
-            return; // Let OnTextInput handle regular characters
+            bytes = e.Key switch
+            {
+                Key.Enter => "\r"u8.ToArray(),
+                Key.Back => new byte[] { 0x7F },
+                Key.Tab => "\t"u8.ToArray(),
+                Key.Escape => new byte[] { 0x1B },
+                Key.Up => "\x1b[A"u8.ToArray(),
+                Key.Down => "\x1b[B"u8.ToArray(),
+                Key.Right => "\x1b[C"u8.ToArray(),
+                Key.Left => "\x1b[D"u8.ToArray(),
+                Key.Home => "\x1b[H"u8.ToArray(),
+                Key.End => "\x1b[F"u8.ToArray(),
+                Key.Insert => "\x1b[2~"u8.ToArray(),
+                Key.Delete => "\x1b[3~"u8.ToArray(),
+                Key.PageUp => "\x1b[5~"u8.ToArray(),
+                Key.PageDown => "\x1b[6~"u8.ToArray(),
+                Key.F1 => "\x1bOP"u8.ToArray(),
+                Key.F2 => "\x1bOQ"u8.ToArray(),
+                Key.F3 => "\x1bOR"u8.ToArray(),
+                Key.F4 => "\x1bOS"u8.ToArray(),
+                Key.F5 => "\x1b[15~"u8.ToArray(),
+                Key.F6 => "\x1b[17~"u8.ToArray(),
+                Key.F7 => "\x1b[18~"u8.ToArray(),
+                Key.F8 => "\x1b[19~"u8.ToArray(),
+                Key.F9 => "\x1b[20~"u8.ToArray(),
+                Key.F10 => "\x1b[21~"u8.ToArray(),
+                Key.F11 => "\x1b[23~"u8.ToArray(),
+                Key.F12 => "\x1b[24~"u8.ToArray(),
+                _ => null
+            };
         }
 
-        InvalidateVisual();
-        e.Handled = true;
+        if (bytes != null)
+        {
+            SendToPty(bytes);
+            e.Handled = true;
+        }
     }
 
     protected override void OnTextInput(TextInputEventArgs e)
     {
         base.OnTextInput(e);
 
-        if (string.IsNullOrEmpty(e.Text))
-            return;
+        if (pty == null || string.IsNullOrEmpty(e.Text)) return;
 
-        foreach (var c in e.Text)
-        {
-            buffer.Write(c);
-        }
-
-        InvalidateVisual();
+        var bytes = Encoding.UTF8.GetBytes(e.Text);
+        SendToPty(bytes);
         e.Handled = true;
     }
 
-    void ScrollUp()
+    async void SendToPty(byte[] data)
     {
-        for (var y = 0; y < buffer.rows - 1; y++)
+        if (pty == null) return;
+
+        try
         {
-            for (var x = 0; x < buffer.columns; x++)
-            {
-                buffer[x, y] = buffer[x, y + 1];
-            }
+            await pty.Input.WriteAsync(data);
+            await pty.Input.FlushAsync();
         }
-        for (var x = 0; x < buffer.columns; x++)
-        {
-            buffer[x, buffer.rows - 1] = new Cell(' ');
-        }
+        catch (Exception) { }
     }
 
     public override void Render(DrawingContext context)
     {
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        context.Custom(new TerminalDrawOperation(bounds, buffer, renderer));
+        context.Custom(new TerminalDrawOperation(bounds, buffer, renderer, bufferLock));
     }
 
     class TerminalDrawOperation : ICustomDrawOperation
@@ -98,12 +230,14 @@ public class TerminalControl : Control
         readonly Rect bounds;
         readonly ScreenBuffer buffer;
         readonly TerminalRenderer renderer;
+        readonly object bufferLock;
 
-        public TerminalDrawOperation(Rect bounds, ScreenBuffer buffer, TerminalRenderer renderer)
+        public TerminalDrawOperation(Rect bounds, ScreenBuffer buffer, TerminalRenderer renderer, object bufferLock)
         {
             this.bounds = bounds;
             this.buffer = buffer;
             this.renderer = renderer;
+            this.bufferLock = bufferLock;
         }
 
         public Rect Bounds => bounds;
@@ -122,7 +256,11 @@ public class TerminalControl : Control
 
             using var lease = leaseFeature.Lease();
             var canvas = lease.SkCanvas;
-            renderer.Render(canvas, buffer);
+
+            lock (bufferLock)
+            {
+                renderer.Render(canvas, buffer);
+            }
         }
     }
 }
