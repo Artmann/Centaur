@@ -1,0 +1,333 @@
+namespace Centaur.Core.Terminal;
+
+public class VtParser
+{
+    readonly ScreenBuffer buffer;
+
+    enum State
+    {
+        Ground,
+        Escape,
+        Csi,
+        CsiParam
+    }
+
+    State state = State.Ground;
+    readonly List<int> csiParams = new();
+    int currentParam;
+
+    public VtParser(ScreenBuffer buffer)
+    {
+        this.buffer = buffer;
+    }
+
+    public void Process(ReadOnlySpan<byte> data)
+    {
+        foreach (var b in data)
+        {
+            ProcessByte(b);
+        }
+    }
+
+    void ProcessByte(byte b)
+    {
+        switch (state)
+        {
+            case State.Ground:
+                ProcessGround(b);
+                break;
+            case State.Escape:
+                ProcessEscape(b);
+                break;
+            case State.Csi:
+            case State.CsiParam:
+                ProcessCsi(b);
+                break;
+        }
+    }
+
+    void ProcessGround(byte b)
+    {
+        switch (b)
+        {
+            case 0x1B: // ESC
+                state = State.Escape;
+                break;
+            case 0x07: // BEL - bell, ignore
+                break;
+            case 0x08: // BS - backspace
+                if (buffer.cursorX > 0)
+                    buffer.cursorX--;
+                break;
+            case 0x09: // TAB
+                buffer.cursorX = ((buffer.cursorX / 8) + 1) * 8;
+                if (buffer.cursorX >= buffer.columns)
+                    buffer.cursorX = buffer.columns - 1;
+                break;
+            case 0x0A: // LF - line feed
+            case 0x0B: // VT - vertical tab
+            case 0x0C: // FF - form feed
+                LineFeed();
+                break;
+            case 0x0D: // CR - carriage return
+                buffer.cursorX = 0;
+                break;
+            default:
+                if (b >= 0x20) // Printable character
+                {
+                    WriteChar((char)b);
+                }
+                break;
+        }
+    }
+
+    void ProcessEscape(byte b)
+    {
+        switch (b)
+        {
+            case (byte)'[': // CSI
+                state = State.Csi;
+                csiParams.Clear();
+                currentParam = 0;
+                break;
+            case (byte)'D': // IND - Index (move down)
+                LineFeed();
+                state = State.Ground;
+                break;
+            case (byte)'E': // NEL - Next Line
+                buffer.cursorX = 0;
+                LineFeed();
+                state = State.Ground;
+                break;
+            case (byte)'M': // RI - Reverse Index (move up)
+                if (buffer.cursorY > 0)
+                    buffer.cursorY--;
+                else
+                    buffer.ScrollDown(1);
+                state = State.Ground;
+                break;
+            case (byte)'7': // DECSC - Save cursor
+            case (byte)'8': // DECRC - Restore cursor
+                // TODO: implement cursor save/restore
+                state = State.Ground;
+                break;
+            default:
+                // Unknown escape, return to ground
+                state = State.Ground;
+                break;
+        }
+    }
+
+    void ProcessCsi(byte b)
+    {
+        if (b >= '0' && b <= '9')
+        {
+            currentParam = currentParam * 10 + (b - '0');
+            state = State.CsiParam;
+        }
+        else if (b == ';')
+        {
+            csiParams.Add(currentParam);
+            currentParam = 0;
+            state = State.CsiParam;
+        }
+        else if (b >= 0x40 && b <= 0x7E)
+        {
+            // Final byte - execute command
+            csiParams.Add(currentParam);
+            ExecuteCsi((char)b);
+            state = State.Ground;
+        }
+        else if (b == '?')
+        {
+            // Private mode indicator, ignore for now
+            state = State.CsiParam;
+        }
+        else
+        {
+            // Unknown, return to ground
+            state = State.Ground;
+        }
+    }
+
+    void ExecuteCsi(char command)
+    {
+        int Param(int index, int defaultValue = 1) =>
+            index < csiParams.Count && csiParams[index] > 0 ? csiParams[index] : defaultValue;
+
+        switch (command)
+        {
+            case 'A': // CUU - Cursor Up
+                buffer.cursorY = Math.Max(0, buffer.cursorY - Param(0));
+                break;
+            case 'B': // CUD - Cursor Down
+                buffer.cursorY = Math.Min(buffer.rows - 1, buffer.cursorY + Param(0));
+                break;
+            case 'C': // CUF - Cursor Forward
+                buffer.cursorX = Math.Min(buffer.columns - 1, buffer.cursorX + Param(0));
+                break;
+            case 'D': // CUB - Cursor Backward
+                buffer.cursorX = Math.Max(0, buffer.cursorX - Param(0));
+                break;
+            case 'E': // CNL - Cursor Next Line
+                buffer.cursorX = 0;
+                buffer.cursorY = Math.Min(buffer.rows - 1, buffer.cursorY + Param(0));
+                break;
+            case 'F': // CPL - Cursor Previous Line
+                buffer.cursorX = 0;
+                buffer.cursorY = Math.Max(0, buffer.cursorY - Param(0));
+                break;
+            case 'G': // CHA - Cursor Horizontal Absolute
+                buffer.cursorX = Math.Clamp(Param(0) - 1, 0, buffer.columns - 1);
+                break;
+            case 'H': // CUP - Cursor Position
+            case 'f': // HVP - Horizontal Vertical Position
+                buffer.cursorY = Math.Clamp(Param(0) - 1, 0, buffer.rows - 1);
+                buffer.cursorX = Math.Clamp(Param(1, 1) - 1, 0, buffer.columns - 1);
+                break;
+            case 'J': // ED - Erase in Display
+                EraseInDisplay(Param(0, 0));
+                break;
+            case 'K': // EL - Erase in Line
+                EraseInLine(Param(0, 0));
+                break;
+            case 'L': // IL - Insert Lines
+                InsertLines(Param(0));
+                break;
+            case 'M': // DL - Delete Lines
+                DeleteLines(Param(0));
+                break;
+            case 'P': // DCH - Delete Characters
+                DeleteCharacters(Param(0));
+                break;
+            case 'S': // SU - Scroll Up
+                buffer.ScrollUp(Param(0));
+                break;
+            case 'T': // SD - Scroll Down
+                buffer.ScrollDown(Param(0));
+                break;
+            case 'd': // VPA - Vertical Position Absolute
+                buffer.cursorY = Math.Clamp(Param(0) - 1, 0, buffer.rows - 1);
+                break;
+            case 'm': // SGR - Select Graphic Rendition
+                // TODO: handle colors/attributes
+                break;
+            case 'h': // SM - Set Mode
+            case 'l': // RM - Reset Mode
+                // TODO: handle modes (e.g., ?25h for cursor visibility)
+                break;
+            case 'r': // DECSTBM - Set Top and Bottom Margins
+                // TODO: implement scroll region
+                break;
+        }
+    }
+
+    void WriteChar(char c)
+    {
+        if (buffer.cursorX >= buffer.columns)
+        {
+            buffer.cursorX = 0;
+            LineFeed();
+        }
+        buffer[buffer.cursorX, buffer.cursorY] = new Cell(c);
+        buffer.cursorX++;
+    }
+
+    void LineFeed()
+    {
+        if (buffer.cursorY < buffer.rows - 1)
+        {
+            buffer.cursorY++;
+        }
+        else
+        {
+            buffer.ScrollUp(1);
+        }
+    }
+
+    void EraseInDisplay(int mode)
+    {
+        switch (mode)
+        {
+            case 0: // Erase from cursor to end of screen
+                EraseInLine(0);
+                for (int y = buffer.cursorY + 1; y < buffer.rows; y++)
+                {
+                    for (int x = 0; x < buffer.columns; x++)
+                        buffer[x, y] = new Cell();
+                }
+                break;
+            case 1: // Erase from start of screen to cursor
+                for (int y = 0; y < buffer.cursorY; y++)
+                {
+                    for (int x = 0; x < buffer.columns; x++)
+                        buffer[x, y] = new Cell();
+                }
+                EraseInLine(1);
+                break;
+            case 2: // Erase entire screen
+            case 3: // Erase entire screen and scrollback
+                buffer.Clear();
+                break;
+        }
+    }
+
+    void EraseInLine(int mode)
+    {
+        switch (mode)
+        {
+            case 0: // Erase from cursor to end of line
+                for (int x = buffer.cursorX; x < buffer.columns; x++)
+                    buffer[x, buffer.cursorY] = new Cell();
+                break;
+            case 1: // Erase from start of line to cursor
+                for (int x = 0; x <= buffer.cursorX; x++)
+                    buffer[x, buffer.cursorY] = new Cell();
+                break;
+            case 2: // Erase entire line
+                for (int x = 0; x < buffer.columns; x++)
+                    buffer[x, buffer.cursorY] = new Cell();
+                break;
+        }
+    }
+
+    void InsertLines(int count)
+    {
+        // Scroll lines down from cursor position
+        for (int i = 0; i < count && buffer.cursorY + i < buffer.rows; i++)
+        {
+            for (int y = buffer.rows - 1; y > buffer.cursorY; y--)
+            {
+                for (int x = 0; x < buffer.columns; x++)
+                    buffer[x, y] = buffer[x, y - 1];
+            }
+            for (int x = 0; x < buffer.columns; x++)
+                buffer[x, buffer.cursorY] = new Cell();
+        }
+    }
+
+    void DeleteLines(int count)
+    {
+        // Scroll lines up from cursor position
+        for (int i = 0; i < count && buffer.cursorY + i < buffer.rows; i++)
+        {
+            for (int y = buffer.cursorY; y < buffer.rows - 1; y++)
+            {
+                for (int x = 0; x < buffer.columns; x++)
+                    buffer[x, y] = buffer[x, y + 1];
+            }
+            for (int x = 0; x < buffer.columns; x++)
+                buffer[x, buffer.rows - 1] = new Cell();
+        }
+    }
+
+    void DeleteCharacters(int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            for (int x = buffer.cursorX; x < buffer.columns - 1; x++)
+                buffer[x, buffer.cursorY] = buffer[x + 1, buffer.cursorY];
+            buffer[buffer.columns - 1, buffer.cursorY] = new Cell();
+        }
+    }
+}

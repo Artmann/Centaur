@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Centaur.Core\Centaur.Core.csproj" />
     <ProjectReference Include="..\Centaur.Rendering\Centaur.Rendering.csproj" />
+    <ProjectReference Include="..\Centaur.Pty.Windows\Centaur.Pty.Windows.csproj" />
   </ItemGroup>
 
 </Project>
