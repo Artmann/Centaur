@@ -8,6 +8,7 @@ public class TerminalEventBusTests
     readonly TerminalEventBus bus = new();
 
     record TestEvent(string Message);
+
     record OtherEvent(int Value);
 
     [Fact]

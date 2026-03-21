@@ -28,7 +28,8 @@ public class ExtensionHost : IExtensionContext, IAsyncDisposable
         }
     }
 
-    public ExtensionHost RegisterProvider<T>(T provider) where T : class, IProvider
+    public ExtensionHost RegisterProvider<T>(T provider)
+        where T : class, IProvider
     {
         if (activated)
         {
@@ -68,10 +69,16 @@ public class ExtensionHost : IExtensionContext, IAsyncDisposable
         await events.PublishAsync(new TerminalReadyEvent());
     }
 
-    public IReadOnlyList<T> GetProviders<T>() where T : class =>
-        providers.OfType<T>().OrderBy(p => (p as IProvider)?.Priority ?? 1000).ToList().AsReadOnly();
+    public IReadOnlyList<T> GetProviders<T>()
+        where T : class =>
+        providers
+            .OfType<T>()
+            .OrderBy(p => (p as IProvider)?.Priority ?? 1000)
+            .ToList()
+            .AsReadOnly();
 
-    public T? GetProvider<T>() where T : class =>
+    public T? GetProvider<T>()
+        where T : class =>
         providers.OfType<T>().OrderBy(p => (p as IProvider)?.Priority ?? 1000).FirstOrDefault();
 
     public async ValueTask DisposeAsync()

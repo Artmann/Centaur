@@ -17,14 +17,14 @@ public static class PaletteGenerator
 
         // Map base16 ANSI colors to cube corners
         var cornerLabs = new Lab[8];
-        cornerLabs[0] = bgLab;                    // (0,0,0) = background
-        cornerLabs[1] = RgbToLab(base16[1]);      // (5,0,0) = red
-        cornerLabs[2] = RgbToLab(base16[2]);      // (0,5,0) = green
-        cornerLabs[3] = RgbToLab(base16[3]);      // (5,5,0) = yellow
-        cornerLabs[4] = RgbToLab(base16[4]);      // (0,0,5) = blue
-        cornerLabs[5] = RgbToLab(base16[5]);      // (5,0,5) = magenta
-        cornerLabs[6] = RgbToLab(base16[6]);      // (0,5,5) = cyan
-        cornerLabs[7] = fgLab;                    // (5,5,5) = foreground
+        cornerLabs[0] = bgLab; // (0,0,0) = background
+        cornerLabs[1] = RgbToLab(base16[1]); // (5,0,0) = red
+        cornerLabs[2] = RgbToLab(base16[2]); // (0,5,0) = green
+        cornerLabs[3] = RgbToLab(base16[3]); // (5,5,0) = yellow
+        cornerLabs[4] = RgbToLab(base16[4]); // (0,0,5) = blue
+        cornerLabs[5] = RgbToLab(base16[5]); // (5,0,5) = magenta
+        cornerLabs[6] = RgbToLab(base16[6]); // (0,5,5) = cyan
+        cornerLabs[7] = fgLab; // (5,5,5) = foreground
 
         for (int r = 0; r < 6; r++)
         {
@@ -67,11 +67,7 @@ public static class PaletteGenerator
 
     static Lab LerpLab(double t, Lab a, Lab b)
     {
-        return new Lab(
-            a.L + t * (b.L - a.L),
-            a.a + t * (b.a - a.a),
-            a.b + t * (b.b - a.b)
-        );
+        return new Lab(a.L + t * (b.L - a.L), a.a + t * (b.a - a.a), a.b + t * (b.b - a.b));
     }
 
     public static Lab RgbToLab(uint argb)

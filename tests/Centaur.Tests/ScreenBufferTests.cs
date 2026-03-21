@@ -47,7 +47,7 @@ public class ScreenBufferTests
         buffer.Write('D');
 
         Assert.Equal('D', buffer[0, 1].character);
-        Assert.Equal(1, buffer.cursorX);  // Cursor advances after writing
+        Assert.Equal(1, buffer.cursorX); // Cursor advances after writing
         Assert.Equal(1, buffer.cursorY);
     }
 

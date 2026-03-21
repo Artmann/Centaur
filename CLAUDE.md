@@ -1,5 +1,11 @@
-- Always use bracers for if statements and other control structures, even for single-line blocks.
 - Don't use CONSTANT_CASE. Use camelCase or PascalCase for variables and functions.
+
+## Formatting and Linting
+
+- **CSharpier** for formatting: `dotnet csharpier format .`
+- **Roslyn Analyzers** for linting: runs automatically during `dotnet build`
+- Run `dotnet csharpier check .` to verify formatting without writing changes
+- CSharpier is a local dotnet tool — run `dotnet tool restore` after cloning
 
 ## Commit Messages
 
@@ -37,5 +43,8 @@ The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage compon
 - Adding a new hook = adding a new record type, no enums or string keys
 
 ### Wiring
-- `TerminalControl` creates the `ExtensionHost`, registers providers/extensions, calls `ActivateAsync` on attach and `DisposeAsync` on detach
+- Extensions and providers are registered in `App.ConfigureServices()` using `Microsoft.Extensions.DependencyInjection`
+- `ExtensionHost` is a singleton resolved from the DI container
+- `TerminalControl` resolves the host via `App.Services.GetRequiredService<ExtensionHost>()`
+- `ActivateAsync` is called on attach, `DisposeAsync` on detach
 - Provider interfaces that need framework types (e.g., SkiaSharp) live in the project that owns those types (e.g., `IRenderOverlay` in Centaur.Rendering), not in Core

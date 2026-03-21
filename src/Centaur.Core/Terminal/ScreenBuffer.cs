@@ -1,6 +1,10 @@
 namespace Centaur.Core.Terminal;
 
-public record Cell(char character = ' ', uint foreground = 0xFFFFFFFF, uint background = 0xFF000000);
+public record Cell(
+    char character = ' ',
+    uint foreground = 0xFFFFFFFF,
+    uint background = 0xFF000000
+);
 
 public class ScreenBuffer
 {
@@ -12,7 +16,8 @@ public class ScreenBuffer
     readonly Cell[] cells;
     readonly Cell defaultCell;
 
-    public ScreenBuffer(int columns, int rows) : this(columns, rows, CatppuccinThemes.Macchiato) { }
+    public ScreenBuffer(int columns, int rows)
+        : this(columns, rows, CatppuccinThemes.Macchiato) { }
 
     public ScreenBuffer(int columns, int rows, TerminalTheme theme)
     {
@@ -62,7 +67,8 @@ public class ScreenBuffer
 
     public void ScrollUp(int lines = 1)
     {
-        if (lines <= 0) return;
+        if (lines <= 0)
+            return;
         if (lines >= rows)
         {
             Array.Fill(cells, defaultCell);
@@ -74,7 +80,8 @@ public class ScreenBuffer
 
     public void ScrollDown(int lines = 1)
     {
-        if (lines <= 0) return;
+        if (lines <= 0)
+            return;
         if (lines >= rows)
         {
             Array.Fill(cells, defaultCell);

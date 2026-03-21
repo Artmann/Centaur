@@ -38,15 +38,29 @@ public class ConPtyConnection : IPtyConnection
         var sa = new SECURITY_ATTRIBUTES
         {
             nLength = Marshal.SizeOf<SECURITY_ATTRIBUTES>(),
-            bInheritHandle = true
+            bInheritHandle = true,
         };
 
         // Pipe: Terminal writes -> Shell reads (stdin)
-        if (!NativeMethods.CreatePipe(out var pipeToShellRead, out var pipeToShellWriteHandle, ref sa, 0))
+        if (
+            !NativeMethods.CreatePipe(
+                out var pipeToShellRead,
+                out var pipeToShellWriteHandle,
+                ref sa,
+                0
+            )
+        )
             throw new InvalidOperationException("Failed to create stdin pipe");
 
         // Pipe: Shell writes -> Terminal reads (stdout)
-        if (!NativeMethods.CreatePipe(out var pipeFromShellReadHandle, out var pipeFromShellWrite, ref sa, 0))
+        if (
+            !NativeMethods.CreatePipe(
+                out var pipeFromShellReadHandle,
+                out var pipeFromShellWrite,
+                ref sa,
+                0
+            )
+        )
         {
             NativeMethods.CloseHandle(pipeToShellRead);
             NativeMethods.CloseHandle(pipeToShellWriteHandle);
@@ -54,8 +68,16 @@ public class ConPtyConnection : IPtyConnection
         }
 
         // Make our ends of the pipes non-inheritable
-        NativeMethods.SetHandleInformation(pipeToShellWriteHandle, NativeMethods.HANDLE_FLAG_INHERIT, 0);
-        NativeMethods.SetHandleInformation(pipeFromShellReadHandle, NativeMethods.HANDLE_FLAG_INHERIT, 0);
+        NativeMethods.SetHandleInformation(
+            pipeToShellWriteHandle,
+            NativeMethods.HANDLE_FLAG_INHERIT,
+            0
+        );
+        NativeMethods.SetHandleInformation(
+            pipeFromShellReadHandle,
+            NativeMethods.HANDLE_FLAG_INHERIT,
+            0
+        );
 
         // Store handles for managed access
         pipeToShellWrite = new SafeFileHandle(pipeToShellWriteHandle, true);
@@ -63,7 +85,13 @@ public class ConPtyConnection : IPtyConnection
 
         // Create the pseudo console
         var size = new COORD { X = (short)options.columns, Y = (short)options.rows };
-        var result = NativeMethods.CreatePseudoConsole(size, pipeToShellRead, pipeFromShellWrite, 0, out hPC);
+        var result = NativeMethods.CreatePseudoConsole(
+            size,
+            pipeToShellRead,
+            pipeFromShellWrite,
+            0,
+            out hPC
+        );
         if (result != 0)
             throw new InvalidOperationException($"CreatePseudoConsole failed: 0x{result:X8}");
 
@@ -82,18 +110,28 @@ public class ConPtyConnection : IPtyConnection
         startupInfo.lpAttributeList = Marshal.AllocHGlobal(attrListSize);
         try
         {
-            if (!NativeMethods.InitializeProcThreadAttributeList(startupInfo.lpAttributeList, 1, 0, ref attrListSize))
+            if (
+                !NativeMethods.InitializeProcThreadAttributeList(
+                    startupInfo.lpAttributeList,
+                    1,
+                    0,
+                    ref attrListSize
+                )
+            )
                 throw new InvalidOperationException("InitializeProcThreadAttributeList failed");
 
             // Add pseudo console attribute
-            if (!NativeMethods.UpdateProcThreadAttribute(
-                startupInfo.lpAttributeList,
-                0,
-                (IntPtr)NativeMethods.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-                hPC,
-                (IntPtr)IntPtr.Size,
-                IntPtr.Zero,
-                IntPtr.Zero))
+            if (
+                !NativeMethods.UpdateProcThreadAttribute(
+                    startupInfo.lpAttributeList,
+                    0,
+                    (IntPtr)NativeMethods.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+                    hPC,
+                    (IntPtr)IntPtr.Size,
+                    IntPtr.Zero,
+                    IntPtr.Zero
+                )
+            )
                 throw new InvalidOperationException("UpdateProcThreadAttribute failed");
 
             // Build command line
@@ -105,18 +143,23 @@ public class ConPtyConnection : IPtyConnection
             var processInfo = new PROCESS_INFORMATION();
             var creationFlags = NativeMethods.EXTENDED_STARTUPINFO_PRESENT;
 
-            if (!NativeMethods.CreateProcess(
-                null,
-                commandLine,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                true,
-                creationFlags,
-                IntPtr.Zero,
-                options.workingDirectory,
-                ref startupInfo,
-                out processInfo))
-                throw new InvalidOperationException($"CreateProcess failed: {Marshal.GetLastWin32Error()}");
+            if (
+                !NativeMethods.CreateProcess(
+                    null,
+                    commandLine,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    true,
+                    creationFlags,
+                    IntPtr.Zero,
+                    options.workingDirectory,
+                    ref startupInfo,
+                    out processInfo
+                )
+            )
+                throw new InvalidOperationException(
+                    $"CreateProcess failed: {Marshal.GetLastWin32Error()}"
+                );
 
             ProcessId = processInfo.dwProcessId;
             processHandle = new SafeFileHandle(processInfo.hProcess, true);
@@ -138,7 +181,8 @@ public class ConPtyConnection : IPtyConnection
 
     async Task OutputPumpAsync(CancellationToken ct)
     {
-        if (pipeFromShellRead == null) return;
+        if (pipeFromShellRead == null)
+            return;
 
         var buffer = new byte[4096];
         var handle = pipeFromShellRead.DangerousGetHandle();
@@ -148,7 +192,16 @@ public class ConPtyConnection : IPtyConnection
             while (!ct.IsCancellationRequested)
             {
                 // Check if data is available
-                if (!NativeMethods.PeekNamedPipe(handle, null, 0, IntPtr.Zero, out var available, IntPtr.Zero))
+                if (
+                    !NativeMethods.PeekNamedPipe(
+                        handle,
+                        null,
+                        0,
+                        IntPtr.Zero,
+                        out var available,
+                        IntPtr.Zero
+                    )
+                )
                 {
                     // Pipe error - likely closed
                     break;
@@ -161,13 +214,24 @@ public class ConPtyConnection : IPtyConnection
                 }
 
                 // Read available data
-                if (!NativeMethods.ReadFile(handle, buffer, Math.Min(buffer.Length, available), out var bytesRead, IntPtr.Zero))
+                if (
+                    !NativeMethods.ReadFile(
+                        handle,
+                        buffer,
+                        Math.Min(buffer.Length, available),
+                        out var bytesRead,
+                        IntPtr.Zero
+                    )
+                )
                     break;
 
                 if (bytesRead == 0)
                     break;
 
-                await outputPipe.Writer.WriteAsync(new ReadOnlyMemory<byte>(buffer, 0, bytesRead), ct);
+                await outputPipe.Writer.WriteAsync(
+                    new ReadOnlyMemory<byte>(buffer, 0, bytesRead),
+                    ct
+                );
             }
         }
         catch (OperationCanceledException) { }
@@ -180,7 +244,8 @@ public class ConPtyConnection : IPtyConnection
 
     async Task InputPumpAsync(CancellationToken ct)
     {
-        if (pipeToShellWrite == null) return;
+        if (pipeToShellWrite == null)
+            return;
 
         var handle = pipeToShellWrite.DangerousGetHandle();
 
@@ -194,15 +259,19 @@ public class ConPtyConnection : IPtyConnection
                 foreach (var segment in buffer)
                 {
                     var data = segment.ToArray();
-                    await Task.Run(() =>
-                    {
-                        NativeMethods.WriteFile(handle, data, data.Length, out _, IntPtr.Zero);
-                    }, ct);
+                    await Task.Run(
+                        () =>
+                        {
+                            NativeMethods.WriteFile(handle, data, data.Length, out _, IntPtr.Zero);
+                        },
+                        ct
+                    );
                 }
 
                 inputPipe.Reader.AdvanceTo(buffer.End);
 
-                if (result.IsCompleted) break;
+                if (result.IsCompleted)
+                    break;
             }
         }
         catch (OperationCanceledException) { }
@@ -215,19 +284,26 @@ public class ConPtyConnection : IPtyConnection
 
     async Task ProcessMonitorAsync(CancellationToken ct)
     {
-        if (processHandle == null) return;
+        if (processHandle == null)
+            return;
 
         try
         {
-            await Task.Run(() =>
-            {
-                while (!ct.IsCancellationRequested)
+            await Task.Run(
+                () =>
                 {
-                    var waitResult = NativeMethods.WaitForSingleObject(processHandle.DangerousGetHandle(), 100);
-                    if (waitResult == 0) // WAIT_OBJECT_0
-                        break;
-                }
-            }, ct);
+                    while (!ct.IsCancellationRequested)
+                    {
+                        var waitResult = NativeMethods.WaitForSingleObject(
+                            processHandle.DangerousGetHandle(),
+                            100
+                        );
+                        if (waitResult == 0) // WAIT_OBJECT_0
+                            break;
+                    }
+                },
+                ct
+            );
         }
         catch (OperationCanceledException) { }
     }
@@ -245,7 +321,10 @@ public class ConPtyConnection : IPtyConnection
     {
         if (processMonitorTask != null)
         {
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, cts?.Token ?? CancellationToken.None);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                ct,
+                cts?.Token ?? CancellationToken.None
+            );
             try
             {
                 await processMonitorTask.WaitAsync(linkedCts.Token);
@@ -259,11 +338,23 @@ public class ConPtyConnection : IPtyConnection
         cts?.Cancel();
 
         if (outputPumpTask != null)
-            try { await outputPumpTask; } catch { }
+            try
+            {
+                await outputPumpTask;
+            }
+            catch { }
         if (inputPumpTask != null)
-            try { await inputPumpTask; } catch { }
+            try
+            {
+                await inputPumpTask;
+            }
+            catch { }
         if (processMonitorTask != null)
-            try { await processMonitorTask; } catch { }
+            try
+            {
+                await processMonitorTask;
+            }
+            catch { }
 
         await outputPipe.Reader.CompleteAsync();
         await outputPipe.Writer.CompleteAsync();
@@ -292,6 +383,7 @@ struct SECURITY_ATTRIBUTES
 {
     public int nLength;
     public IntPtr lpSecurityDescriptor;
+
     [MarshalAs(UnmanagedType.Bool)]
     public bool bInheritHandle;
 }
@@ -342,7 +434,12 @@ static class NativeMethods
     public const int PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016;
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool CreatePipe(out IntPtr hReadPipe, out IntPtr hWritePipe, ref SECURITY_ATTRIBUTES lpPipeAttributes, int nSize);
+    public static extern bool CreatePipe(
+        out IntPtr hReadPipe,
+        out IntPtr hWritePipe,
+        ref SECURITY_ATTRIBUTES lpPipeAttributes,
+        int nSize
+    );
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool SetHandleInformation(IntPtr hObject, int dwMask, int dwFlags);
@@ -351,7 +448,13 @@ static class NativeMethods
     public static extern bool CloseHandle(IntPtr hObject);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern int CreatePseudoConsole(COORD size, IntPtr hInput, IntPtr hOutput, int dwFlags, out IntPtr phPC);
+    public static extern int CreatePseudoConsole(
+        COORD size,
+        IntPtr hInput,
+        IntPtr hOutput,
+        int dwFlags,
+        out IntPtr phPC
+    );
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern int ResizePseudoConsole(IntPtr hPC, COORD size);
@@ -360,10 +463,23 @@ static class NativeMethods
     public static extern void ClosePseudoConsole(IntPtr hPC);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool InitializeProcThreadAttributeList(IntPtr lpAttributeList, int dwAttributeCount, int dwFlags, ref IntPtr lpSize);
+    public static extern bool InitializeProcThreadAttributeList(
+        IntPtr lpAttributeList,
+        int dwAttributeCount,
+        int dwFlags,
+        ref IntPtr lpSize
+    );
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool UpdateProcThreadAttribute(IntPtr lpAttributeList, int dwFlags, IntPtr attribute, IntPtr lpValue, IntPtr cbSize, IntPtr lpPreviousValue, IntPtr lpReturnSize);
+    public static extern bool UpdateProcThreadAttribute(
+        IntPtr lpAttributeList,
+        int dwFlags,
+        IntPtr attribute,
+        IntPtr lpValue,
+        IntPtr cbSize,
+        IntPtr lpPreviousValue,
+        IntPtr lpReturnSize
+    );
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern void DeleteProcThreadAttributeList(IntPtr lpAttributeList);
@@ -379,17 +495,37 @@ static class NativeMethods
         IntPtr lpEnvironment,
         string? lpCurrentDirectory,
         ref STARTUPINFOEX lpStartupInfo,
-        out PROCESS_INFORMATION lpProcessInformation);
+        out PROCESS_INFORMATION lpProcessInformation
+    );
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern int WaitForSingleObject(IntPtr hHandle, int dwMilliseconds);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool ReadFile(IntPtr hFile, byte[] lpBuffer, int nNumberOfBytesToRead, out int lpNumberOfBytesRead, IntPtr lpOverlapped);
+    public static extern bool ReadFile(
+        IntPtr hFile,
+        byte[] lpBuffer,
+        int nNumberOfBytesToRead,
+        out int lpNumberOfBytesRead,
+        IntPtr lpOverlapped
+    );
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool WriteFile(IntPtr hFile, byte[] lpBuffer, int nNumberOfBytesToWrite, out int lpNumberOfBytesWritten, IntPtr lpOverlapped);
+    public static extern bool WriteFile(
+        IntPtr hFile,
+        byte[] lpBuffer,
+        int nNumberOfBytesToWrite,
+        out int lpNumberOfBytesWritten,
+        IntPtr lpOverlapped
+    );
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool PeekNamedPipe(IntPtr hNamedPipe, byte[]? lpBuffer, int nBufferSize, IntPtr lpBytesRead, out int lpTotalBytesAvail, IntPtr lpBytesLeftThisMessage);
+    public static extern bool PeekNamedPipe(
+        IntPtr hNamedPipe,
+        byte[]? lpBuffer,
+        int nBufferSize,
+        IntPtr lpBytesRead,
+        out int lpTotalBytesAvail,
+        IntPtr lpBytesLeftThisMessage
+    );
 }

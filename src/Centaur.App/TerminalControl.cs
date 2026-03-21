@@ -2,6 +2,7 @@ using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Rendering.SceneGraph;
@@ -12,7 +13,6 @@ using Centaur.Core.Pty;
 using Centaur.Core.Terminal;
 using Centaur.Pty.Windows;
 using Centaur.Rendering;
-using Avalonia.Interactivity;
 using Microsoft.Extensions.DependencyInjection;
 using SkiaSharp;
 
@@ -34,20 +34,24 @@ public class TerminalControl : Control
     volatile bool hasPendingUpdates;
 
     // Selection state (UI thread only)
-    int selAnchorCol, selAnchorRow;
-    int selCurrentCol, selCurrentRow;
+    int selAnchorCol,
+        selAnchorRow;
+    int selCurrentCol,
+        selCurrentRow;
     bool isDragging;
     bool hasSelection;
     int selectionMode; // 0=char, 1=word, 2=line
-    int wordAnchorStart, wordAnchorEnd; // word-mode anchor boundaries
+    int wordAnchorStart,
+        wordAnchorEnd; // word-mode anchor boundaries
 
     public TerminalControl()
     {
         host = App.Services.GetRequiredService<ExtensionHost>();
 
         var themeProvider = host.GetProvider<IThemeProvider>();
-        theme = themeProvider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
-                ?? CatppuccinThemes.Macchiato;
+        theme =
+            themeProvider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
+            ?? CatppuccinThemes.Macchiato;
 
         buffer = new ScreenBuffer(80, 24, theme);
         renderer = new TerminalRenderer(theme);
@@ -57,10 +61,7 @@ public class TerminalControl : Control
         ClipToBounds = true;
 
         // 16ms timer for ~60fps frame pacing
-        renderTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(16)
-        };
+        renderTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         renderTimer.Tick += OnRenderTimerTick;
     }
 
@@ -117,7 +118,11 @@ public class TerminalControl : Control
         readCts?.Cancel();
         if (readTask != null)
         {
-            try { await readTask; } catch { }
+            try
+            {
+                await readTask;
+            }
+            catch { }
         }
         if (pty != null)
         {
@@ -130,7 +135,8 @@ public class TerminalControl : Control
 
     async Task ReadLoopAsync(CancellationToken ct)
     {
-        if (pty == null) return;
+        if (pty == null)
+            return;
 
         try
         {
@@ -152,7 +158,8 @@ public class TerminalControl : Control
                 // Signal that we have updates - timer will coalesce and render
                 hasPendingUpdates = true;
 
-                if (result.IsCompleted) break;
+                if (result.IsCompleted)
+                    break;
             }
         }
         catch (OperationCanceledException) { }
@@ -217,7 +224,8 @@ public class TerminalControl : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (!isDragging) return;
+        if (!isDragging)
+            return;
 
         var (col, row) = PixelToGrid(e.GetPosition(this));
 
@@ -243,7 +251,8 @@ public class TerminalControl : Control
             // Word mode: snap to word boundaries
             lock (bufferLock)
             {
-                bool beforeAnchor = row < selAnchorRow || (row == selAnchorRow && col < wordAnchorStart);
+                bool beforeAnchor =
+                    row < selAnchorRow || (row == selAnchorRow && col < wordAnchorStart);
                 if (beforeAnchor)
                 {
                     selAnchorCol = wordAnchorEnd;
@@ -276,7 +285,8 @@ public class TerminalControl : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (!isDragging) return;
+        if (!isDragging)
+            return;
 
         isDragging = false;
         e.Pointer.Capture(null);
@@ -293,7 +303,8 @@ public class TerminalControl : Control
     {
         base.OnKeyDown(e);
 
-        if (pty == null) return;
+        if (pty == null)
+            return;
 
         byte[]? bytes = null;
 
@@ -343,7 +354,7 @@ public class TerminalControl : Control
                 Key.F10 => "\x1b[21~"u8.ToArray(),
                 Key.F11 => "\x1b[23~"u8.ToArray(),
                 Key.F12 => "\x1b[24~"u8.ToArray(),
-                _ => null
+                _ => null,
             };
         }
 
@@ -358,7 +369,8 @@ public class TerminalControl : Control
     {
         base.OnTextInput(e);
 
-        if (pty == null || string.IsNullOrEmpty(e.Text)) return;
+        if (pty == null || string.IsNullOrEmpty(e.Text))
+            return;
 
         var bytes = Encoding.UTF8.GetBytes(e.Text);
         SendToPty(bytes);
@@ -367,7 +379,8 @@ public class TerminalControl : Control
 
     async void SendToPty(byte[] data)
     {
-        if (pty == null) return;
+        if (pty == null)
+            return;
 
         try
         {
@@ -396,7 +409,8 @@ public class TerminalControl : Control
 
     TextSelection? GetNormalizedSelection()
     {
-        if (!hasSelection) return null;
+        if (!hasSelection)
+            return null;
         return TextSelection.Normalize(selAnchorCol, selAnchorRow, selCurrentCol, selCurrentRow);
     }
 
@@ -404,7 +418,16 @@ public class TerminalControl : Control
     {
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
         var overlays = host.GetProviders<IRenderOverlay>();
-        context.Custom(new TerminalDrawOperation(bounds, buffer, renderer, bufferLock, GetNormalizedSelection(), overlays));
+        context.Custom(
+            new TerminalDrawOperation(
+                bounds,
+                buffer,
+                renderer,
+                bufferLock,
+                GetNormalizedSelection(),
+                overlays
+            )
+        );
     }
 
     class TerminalDrawOperation : ICustomDrawOperation
@@ -416,8 +439,14 @@ public class TerminalControl : Control
         readonly TextSelection? selection;
         readonly IReadOnlyList<IRenderOverlay> overlays;
 
-        public TerminalDrawOperation(Rect bounds, ScreenBuffer buffer, TerminalRenderer renderer,
-                                     object bufferLock, TextSelection? selection, IReadOnlyList<IRenderOverlay> overlays)
+        public TerminalDrawOperation(
+            Rect bounds,
+            ScreenBuffer buffer,
+            TerminalRenderer renderer,
+            object bufferLock,
+            TextSelection? selection,
+            IReadOnlyList<IRenderOverlay> overlays
+        )
         {
             this.bounds = bounds;
             this.buffer = buffer;

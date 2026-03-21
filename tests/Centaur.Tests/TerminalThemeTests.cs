@@ -123,7 +123,11 @@ public class PaletteGeneratorTests
     public void GenerateFullPalette_Returns256Colors()
     {
         var theme = CatppuccinThemes.Macchiato;
-        var palette = PaletteGenerator.GenerateFullPalette(theme.Palette, theme.Background, theme.Foreground);
+        var palette = PaletteGenerator.GenerateFullPalette(
+            theme.Palette,
+            theme.Background,
+            theme.Foreground
+        );
         Assert.Equal(256, palette.Length);
     }
 
@@ -131,7 +135,11 @@ public class PaletteGeneratorTests
     public void GenerateFullPalette_First16AreBase16()
     {
         var theme = CatppuccinThemes.Macchiato;
-        var palette = PaletteGenerator.GenerateFullPalette(theme.Palette, theme.Background, theme.Foreground);
+        var palette = PaletteGenerator.GenerateFullPalette(
+            theme.Palette,
+            theme.Background,
+            theme.Foreground
+        );
         for (int i = 0; i < 16; i++)
         {
             Assert.Equal(theme.Palette[i], palette[i]);
@@ -142,7 +150,11 @@ public class PaletteGeneratorTests
     public void GrayscaleRamp_FirstEntryNearBackground()
     {
         var theme = CatppuccinThemes.Macchiato;
-        var palette = PaletteGenerator.GenerateFullPalette(theme.Palette, theme.Background, theme.Foreground);
+        var palette = PaletteGenerator.GenerateFullPalette(
+            theme.Palette,
+            theme.Background,
+            theme.Foreground
+        );
 
         // Index 232 should be close to background
         var rampStart = palette[232];
@@ -153,7 +165,11 @@ public class PaletteGeneratorTests
     public void GrayscaleRamp_LastEntryNearForeground()
     {
         var theme = CatppuccinThemes.Macchiato;
-        var palette = PaletteGenerator.GenerateFullPalette(theme.Palette, theme.Background, theme.Foreground);
+        var palette = PaletteGenerator.GenerateFullPalette(
+            theme.Palette,
+            theme.Background,
+            theme.Foreground
+        );
 
         // Index 255 should be close to foreground
         var rampEnd = palette[255];
@@ -164,7 +180,11 @@ public class PaletteGeneratorTests
     public void ColorCube_Origin_NearBackground()
     {
         var theme = CatppuccinThemes.Macchiato;
-        var palette = PaletteGenerator.GenerateFullPalette(theme.Palette, theme.Background, theme.Foreground);
+        var palette = PaletteGenerator.GenerateFullPalette(
+            theme.Palette,
+            theme.Background,
+            theme.Foreground
+        );
 
         // Index 16 = cube(0,0,0) should be near background
         AssertColorsClose(theme.Background, palette[16], tolerance: 30);
@@ -174,7 +194,11 @@ public class PaletteGeneratorTests
     public void ColorCube_Max_NearForeground()
     {
         var theme = CatppuccinThemes.Macchiato;
-        var palette = PaletteGenerator.GenerateFullPalette(theme.Palette, theme.Background, theme.Foreground);
+        var palette = PaletteGenerator.GenerateFullPalette(
+            theme.Palette,
+            theme.Background,
+            theme.Foreground
+        );
 
         // Index 231 = cube(5,5,5) should be near foreground
         AssertColorsClose(theme.Foreground, palette[231], tolerance: 30);

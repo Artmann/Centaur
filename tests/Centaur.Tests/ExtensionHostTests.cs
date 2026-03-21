@@ -44,6 +44,7 @@ public class ExtensionHostTests
         public int Priority => 500;
 
         public Task ActivateAsync(IExtensionContext context) => Task.CompletedTask;
+
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
@@ -153,8 +154,12 @@ public class ExtensionHostTests
         var host = new ExtensionHost();
         await host.ActivateAsync();
 
-        Assert.Throws<InvalidOperationException>(() => host.RegisterProvider(new TestProvider("late")));
-        Assert.Throws<InvalidOperationException>(() => host.RegisterExtension(new TrackingExtension("late")));
+        Assert.Throws<InvalidOperationException>(() =>
+            host.RegisterProvider(new TestProvider("late"))
+        );
+        Assert.Throws<InvalidOperationException>(() =>
+            host.RegisterExtension(new TrackingExtension("late"))
+        );
     }
 
     [Fact]

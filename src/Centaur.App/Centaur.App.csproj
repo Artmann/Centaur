@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
@@ -22,5 +21,4 @@
     <ProjectReference Include="..\Centaur.Rendering\Centaur.Rendering.csproj" />
     <ProjectReference Include="..\Centaur.Pty.Windows\Centaur.Pty.Windows.csproj" />
   </ItemGroup>
-
 </Project>

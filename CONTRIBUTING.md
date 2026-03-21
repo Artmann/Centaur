@@ -20,6 +20,18 @@ dotnet test
 dotnet run --project src/Centaur.App
 ```
 
+## Formatting and Linting
+
+This project uses [CSharpier](https://csharpier.com/) for formatting and Roslyn Analyzers for linting.
+
+```bash
+dotnet csharpier format .          # Format all files
+dotnet csharpier check .           # Check formatting without writing changes
+dotnet build                       # Roslyn analyzers run as part of the build
+```
+
+CSharpier is installed as a local dotnet tool. Run `dotnet tool restore` after cloning to install it.
+
 ## Architecture
 
 - **Rendering**: Avalonia uses immediate-mode rendering. Each frame receives a fresh canvas that is not preserved between frames. Custom draw operations must always do full redraws. Timer-based update coalescing (~16ms) batches rapid PTY output into single renders.

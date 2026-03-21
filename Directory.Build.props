@@ -1,5 +1,7 @@
 <Project>
   <PropertyGroup>
     <NoWarn>$(NoWarn);IDE1006</NoWarn>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
   </PropertyGroup>
 </Project>

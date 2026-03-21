@@ -1,6 +1,6 @@
 using System.Reflection;
-using SkiaSharp;
 using Centaur.Core.Terminal;
+using SkiaSharp;
 
 namespace Centaur.Rendering;
 
@@ -21,23 +21,21 @@ public class TerminalRenderer : IDisposable
         typeface = LoadEmbeddedFont() ?? SKTypeface.Default;
         font = new SKFont(typeface, fontSize);
 
-        textPaint = new SKPaint
-        {
-            Color = new SKColor(theme.Foreground),
-            IsAntialias = true
-        };
+        textPaint = new SKPaint { Color = new SKColor(theme.Foreground), IsAntialias = true };
 
-        backgroundPaint = new SKPaint
-        {
-            Color = new SKColor(theme.Background)
-        };
+        backgroundPaint = new SKPaint { Color = new SKColor(theme.Background) };
 
         cellWidth = font.MeasureText("M");
         cellHeight = fontSize * 1.2f;
     }
 
-    public void Render(SKCanvas canvas, ScreenBuffer buffer, float canvasWidth,
-                       TextSelection? selection = null, IReadOnlyList<IRenderOverlay>? overlays = null)
+    public void Render(
+        SKCanvas canvas,
+        ScreenBuffer buffer,
+        float canvasWidth,
+        TextSelection? selection = null,
+        IReadOnlyList<IRenderOverlay>? overlays = null
+    )
     {
         canvas.Clear(new SKColor(theme.Background));
 
@@ -49,7 +47,8 @@ public class TerminalRenderer : IDisposable
                 var px = x * cellWidth;
                 var py = y * cellHeight;
 
-                var selected = selection.HasValue && TextSelection.IsInSelection(x, y, selection.Value);
+                var selected =
+                    selection.HasValue && TextSelection.IsInSelection(x, y, selection.Value);
                 var fg = selected ? cell.background : cell.foreground;
                 var bg = selected ? cell.foreground : cell.background;
 

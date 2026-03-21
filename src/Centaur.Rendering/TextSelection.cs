@@ -3,9 +3,19 @@ using Centaur.Core.Terminal;
 
 namespace Centaur.Rendering;
 
-public readonly record struct TextSelection(int StartColumn, int StartRow, int EndColumn, int EndRow)
+public readonly record struct TextSelection(
+    int StartColumn,
+    int StartRow,
+    int EndColumn,
+    int EndRow
+)
 {
-    public static TextSelection Normalize(int anchorCol, int anchorRow, int currentCol, int currentRow)
+    public static TextSelection Normalize(
+        int anchorCol,
+        int anchorRow,
+        int currentCol,
+        int currentRow
+    )
     {
         if (anchorRow > currentRow || (anchorRow == currentRow && anchorCol > currentCol))
             return new TextSelection(currentCol, currentRow, anchorCol, anchorRow);
@@ -14,10 +24,14 @@ public readonly record struct TextSelection(int StartColumn, int StartRow, int E
 
     public static bool IsInSelection(int x, int y, TextSelection sel)
     {
-        if (y < sel.StartRow || y > sel.EndRow) return false;
-        if (sel.StartRow == sel.EndRow) return x >= sel.StartColumn && x < sel.EndColumn;
-        if (y == sel.StartRow) return x >= sel.StartColumn;
-        if (y == sel.EndRow) return x < sel.EndColumn;
+        if (y < sel.StartRow || y > sel.EndRow)
+            return false;
+        if (sel.StartRow == sel.EndRow)
+            return x >= sel.StartColumn && x < sel.EndColumn;
+        if (y == sel.StartRow)
+            return x >= sel.StartColumn;
+        if (y == sel.EndRow)
+            return x < sel.EndColumn;
         return true;
     }
 

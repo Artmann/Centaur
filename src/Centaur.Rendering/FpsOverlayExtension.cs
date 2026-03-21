@@ -24,7 +24,13 @@ public class FpsOverlayExtension : IExtension, IRenderOverlay
         return Task.CompletedTask;
     }
 
-    public void Render(SKCanvas canvas, float canvasWidth, TerminalTheme theme, SKFont baseFont, SKTypeface typeface)
+    public void Render(
+        SKCanvas canvas,
+        float canvasWidth,
+        TerminalTheme theme,
+        SKFont baseFont,
+        SKTypeface typeface
+    )
     {
         if (fpsPaint == null || fpsBgPaint == null)
         {

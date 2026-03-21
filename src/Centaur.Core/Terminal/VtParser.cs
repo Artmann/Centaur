@@ -12,14 +12,15 @@ public class VtParser
         Ground,
         Escape,
         Csi,
-        CsiParam
+        CsiParam,
     }
 
     State state = State.Ground;
     readonly List<int> csiParams = new();
     int currentParam;
 
-    public VtParser(ScreenBuffer buffer) : this(buffer, CatppuccinThemes.Macchiato) { }
+    public VtParser(ScreenBuffer buffer)
+        : this(buffer, CatppuccinThemes.Macchiato) { }
 
     public VtParser(ScreenBuffer buffer, TerminalTheme theme)
     {
@@ -382,14 +383,18 @@ public class VtParser
 
     int ParseExtendedColor(int i, bool isForeground)
     {
-        if (i + 1 >= csiParams.Count) return i;
+        if (i + 1 >= csiParams.Count)
+            return i;
         var mode = csiParams[i + 1];
 
         if (mode == 5 && i + 2 < csiParams.Count)
         {
             var colorIndex = csiParams[i + 2];
             var color = theme.GetColor(colorIndex);
-            if (isForeground) currentFg = color; else currentBg = color;
+            if (isForeground)
+                currentFg = color;
+            else
+                currentBg = color;
             return i + 2;
         }
         else if (mode == 2 && i + 4 < csiParams.Count)
@@ -398,7 +403,10 @@ public class VtParser
             var g = (byte)csiParams[i + 3];
             var b = (byte)csiParams[i + 4];
             var color = 0xFF000000u | ((uint)r << 16) | ((uint)g << 8) | b;
-            if (isForeground) currentFg = color; else currentBg = color;
+            if (isForeground)
+                currentFg = color;
+            else
+                currentBg = color;
             return i + 4;
         }
         return i + 1;
