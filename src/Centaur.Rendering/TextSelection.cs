@@ -21,6 +21,24 @@ public readonly record struct TextSelection(int StartColumn, int StartRow, int E
         return true;
     }
 
+    static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    public static int FindWordStart(ScreenBuffer buffer, int col, int row)
+    {
+        bool wordChar = IsWordChar(buffer[col, row].character);
+        while (col > 0 && IsWordChar(buffer[col - 1, row].character) == wordChar)
+            col--;
+        return col;
+    }
+
+    public static int FindWordEnd(ScreenBuffer buffer, int col, int row)
+    {
+        bool wordChar = IsWordChar(buffer[col, row].character);
+        while (col < buffer.columns - 1 && IsWordChar(buffer[col + 1, row].character) == wordChar)
+            col++;
+        return col + 1;
+    }
+
     public static string ExtractText(ScreenBuffer buffer, TextSelection sel)
     {
         var sb = new StringBuilder();

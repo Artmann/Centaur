@@ -34,6 +34,8 @@ public class TerminalControl : Control
     int selCurrentCol, selCurrentRow;
     bool isDragging;
     bool hasSelection;
+    int selectionMode; // 0=char, 1=word, 2=line
+    int wordAnchorStart, wordAnchorEnd; // word-mode anchor boundaries
 
     public TerminalControl()
     {
@@ -156,12 +158,45 @@ public class TerminalControl : Control
     {
         base.OnPointerPressed(e);
         var (col, row) = PixelToGrid(e.GetPosition(this));
-        selAnchorCol = col;
-        selAnchorRow = row;
-        selCurrentCol = col;
-        selCurrentRow = row;
+        var clickCount = e.ClickCount;
+
+        if (clickCount >= 3)
+        {
+            // Triple-click: select entire line
+            selectionMode = 2;
+            selAnchorCol = 0;
+            selAnchorRow = row;
+            selCurrentCol = buffer.columns;
+            selCurrentRow = row;
+            hasSelection = true;
+        }
+        else if (clickCount == 2)
+        {
+            // Double-click: select word
+            selectionMode = 1;
+            lock (bufferLock)
+            {
+                wordAnchorStart = TextSelection.FindWordStart(buffer, col, row);
+                wordAnchorEnd = TextSelection.FindWordEnd(buffer, col, row);
+            }
+            selAnchorCol = wordAnchorStart;
+            selAnchorRow = row;
+            selCurrentCol = wordAnchorEnd;
+            selCurrentRow = row;
+            hasSelection = true;
+        }
+        else
+        {
+            // Single click: character selection
+            selectionMode = 0;
+            selAnchorCol = col;
+            selAnchorRow = row;
+            selCurrentCol = col;
+            selCurrentRow = row;
+            hasSelection = false;
+        }
+
         isDragging = true;
-        hasSelection = false;
         hasPendingUpdates = true;
         e.Pointer.Capture(this);
         e.Handled = true;
@@ -173,11 +208,54 @@ public class TerminalControl : Control
         if (!isDragging) return;
 
         var (col, row) = PixelToGrid(e.GetPosition(this));
-        selCurrentCol = col;
-        selCurrentRow = row;
 
-        if (col != selAnchorCol || row != selAnchorRow)
+        if (selectionMode == 2)
+        {
+            // Line mode: snap to full lines
+            if (row < selAnchorRow)
+            {
+                selAnchorCol = buffer.columns;
+                selCurrentCol = 0;
+                selCurrentRow = row;
+            }
+            else
+            {
+                selAnchorCol = 0;
+                selCurrentCol = buffer.columns;
+                selCurrentRow = row;
+            }
             hasSelection = true;
+        }
+        else if (selectionMode == 1)
+        {
+            // Word mode: snap to word boundaries
+            lock (bufferLock)
+            {
+                bool beforeAnchor = row < selAnchorRow || (row == selAnchorRow && col < wordAnchorStart);
+                if (beforeAnchor)
+                {
+                    selAnchorCol = wordAnchorEnd;
+                    selCurrentCol = TextSelection.FindWordStart(buffer, col, row);
+                    selCurrentRow = row;
+                }
+                else
+                {
+                    selAnchorCol = wordAnchorStart;
+                    selCurrentCol = TextSelection.FindWordEnd(buffer, col, row);
+                    selCurrentRow = row;
+                }
+            }
+            hasSelection = true;
+        }
+        else
+        {
+            // Char mode
+            selCurrentCol = col;
+            selCurrentRow = row;
+
+            if (col != selAnchorCol || row != selAnchorRow)
+                hasSelection = true;
+        }
 
         hasPendingUpdates = true;
         e.Handled = true;
@@ -192,7 +270,7 @@ public class TerminalControl : Control
         e.Pointer.Capture(null);
 
         var (col, row) = PixelToGrid(e.GetPosition(this));
-        if (col == selAnchorCol && row == selAnchorRow)
+        if (selectionMode == 0 && col == selAnchorCol && row == selAnchorRow)
             hasSelection = false;
 
         hasPendingUpdates = true;
