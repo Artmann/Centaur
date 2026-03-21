@@ -32,7 +32,8 @@
       "Bash(grep -v \"^$\")",
       "Bash(grep -r \"RenderingMode\\\\|CompositionMode\\\\|VSync\\\\|FrameRate\" /c/Users/Artga/Code/Centaur/src --include=*.cs)",
       "WebSearch",
-      "Bash(gh run:*)"
+      "Bash(gh run:*)",
+      "Skill(update-config)"
     ]
   }
 }

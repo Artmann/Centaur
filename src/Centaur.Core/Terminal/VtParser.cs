@@ -13,11 +13,18 @@ public class VtParser
         Escape,
         Csi,
         CsiParam,
+        Osc,
+        OscEscape,
     }
 
     State state = State.Ground;
     readonly List<int> csiParams = new();
     int currentParam;
+
+    // UTF-8 decoder state
+    readonly byte[] utf8Buf = new byte[4];
+    int utf8Remaining;
+    int utf8Length;
 
     public VtParser(ScreenBuffer buffer)
         : this(buffer, CatppuccinThemes.Macchiato) { }
@@ -51,6 +58,13 @@ public class VtParser
             case State.Csi:
             case State.CsiParam:
                 ProcessCsi(b);
+                break;
+            case State.Osc:
+                ProcessOsc(b);
+                break;
+            case State.OscEscape:
+                // Any byte after ESC in OSC returns to ground (handles \x1b\\)
+                state = State.Ground;
                 break;
         }
     }
@@ -86,8 +100,40 @@ public class VtParser
                 buffer.cursorX = 0;
                 break;
             default:
-                if (b >= 0x20) // Printable character
+                if (utf8Remaining > 0 && (b & 0xC0) == 0x80)
                 {
+                    // UTF-8 continuation byte
+                    utf8Buf[utf8Length++] = b;
+                    utf8Remaining--;
+                    if (utf8Remaining == 0)
+                    {
+                        FlushUtf8();
+                    }
+                }
+                else if ((b & 0xE0) == 0xC0)
+                {
+                    // 2-byte UTF-8 start
+                    utf8Buf[0] = b;
+                    utf8Length = 1;
+                    utf8Remaining = 1;
+                }
+                else if ((b & 0xF0) == 0xE0)
+                {
+                    // 3-byte UTF-8 start
+                    utf8Buf[0] = b;
+                    utf8Length = 1;
+                    utf8Remaining = 2;
+                }
+                else if ((b & 0xF8) == 0xF0)
+                {
+                    // 4-byte UTF-8 start
+                    utf8Buf[0] = b;
+                    utf8Length = 1;
+                    utf8Remaining = 3;
+                }
+                else if (b >= 0x20)
+                {
+                    // ASCII printable
                     WriteChar((char)b);
                 }
                 break;
@@ -122,6 +168,9 @@ public class VtParser
                     buffer.ScrollDown(1);
                 }
                 state = State.Ground;
+                break;
+            case (byte)']': // OSC - Operating System Command
+                state = State.Osc;
                 break;
             case (byte)'7': // DECSC - Save cursor
             case (byte)'8': // DECRC - Restore cursor
@@ -237,6 +286,32 @@ public class VtParser
                 // TODO: implement scroll region
                 break;
         }
+    }
+
+    void FlushUtf8()
+    {
+        var span = utf8Buf.AsSpan(0, utf8Length);
+        var chars = new char[2];
+        var charCount = System.Text.Encoding.UTF8.GetChars(span, chars);
+        for (var i = 0; i < charCount; i++)
+        {
+            WriteChar(chars[i]);
+        }
+    }
+
+    void ProcessOsc(byte b)
+    {
+        if (b == 0x07)
+        {
+            // BEL terminates OSC
+            state = State.Ground;
+        }
+        else if (b == 0x1B)
+        {
+            // Could be start of ST (\x1b\\)
+            state = State.OscEscape;
+        }
+        // Otherwise consume and discard
     }
 
     Cell DefaultCell() => new(' ', theme.Foreground, theme.Background);
