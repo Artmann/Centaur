@@ -5,7 +5,17 @@
       "Bash(dotnet sln:*)",
       "Bash(dotnet build:*)",
       "Bash(dotnet test:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(dir \"C:\\\\Users\\\\Artga\\\\Code\\\\Centaur\" /b /ad)",
+      "Bash(dotnet restore:*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(timeout 3 dotnet run:*)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(powershell.exe -NoProfile -Command \"Add-Type -AssemblyName presentationCore; \\\\$p = New-Object System.Windows.Media.MediaPlayer; \\\\$p.Open\\([uri]'C:\\\\Users\\\\Artga\\\\Downloads\\\\Warcraft Peon - Work work - QuickSounds.com.mp3'\\); \\\\$p.Play\\(\\); Start-Sleep -Seconds 5\" 2>&1)",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\Artga\\\\.claude\\\\play-sound.ps1\" 2>&1)"
     ]
   }
 }
