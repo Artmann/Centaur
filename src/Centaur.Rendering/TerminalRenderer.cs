@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Reflection;
 using SkiaSharp;
 using Centaur.Core.Terminal;
@@ -7,18 +6,11 @@ namespace Centaur.Rendering;
 
 public class TerminalRenderer : IDisposable
 {
-    readonly SKTypeface typeface;
-    readonly SKFont font;
+    internal readonly SKTypeface typeface;
+    internal readonly SKFont font;
     readonly SKPaint textPaint;
     readonly SKPaint backgroundPaint;
-    readonly SKPaint fpsPaint;
-    readonly SKPaint fpsBgPaint;
-    readonly SKFont fpsFont;
     readonly TerminalTheme theme;
-
-    int frameCount;
-    readonly Stopwatch fpsStopwatch = Stopwatch.StartNew();
-    double currentFps;
 
     public float cellWidth { get; }
     public float cellHeight { get; }
@@ -42,20 +34,10 @@ public class TerminalRenderer : IDisposable
 
         cellWidth = font.MeasureText("M");
         cellHeight = fontSize * 1.2f;
-
-        fpsFont = new SKFont(typeface, fontSize * 0.85f);
-        fpsPaint = new SKPaint
-        {
-            Color = new SKColor(theme.Foreground),
-            IsAntialias = true
-        };
-        fpsBgPaint = new SKPaint
-        {
-            Color = new SKColor(theme.Background)
-        };
     }
 
-    public void Render(SKCanvas canvas, ScreenBuffer buffer, float canvasWidth, TextSelection? selection = null)
+    public void Render(SKCanvas canvas, ScreenBuffer buffer, float canvasWidth,
+                       TextSelection? selection = null, IReadOnlyList<IRenderOverlay>? overlays = null)
     {
         canvas.Clear(new SKColor(theme.Background));
 
@@ -93,41 +75,19 @@ public class TerminalRenderer : IDisposable
             }
         }
 
-        DrawFps(canvas, canvasWidth);
-    }
-
-    void DrawFps(SKCanvas canvas, float canvasWidth)
-    {
-        frameCount++;
-        var elapsed = fpsStopwatch.Elapsed.TotalSeconds;
-        if (elapsed >= 0.5)
+        if (overlays != null)
         {
-            currentFps = frameCount / elapsed;
-            frameCount = 0;
-            fpsStopwatch.Restart();
+            foreach (var overlay in overlays)
+            {
+                overlay.Render(canvas, canvasWidth, theme, font, typeface);
+            }
         }
-
-        var text = $"{currentFps:F0} fps";
-        var textWidth = fpsFont.MeasureText(text);
-        var padding = 6f;
-        var x = canvasWidth - textWidth - padding * 2;
-        var y = padding;
-        var height = fpsFont.Size * 1.4f;
-
-        fpsBgPaint.Color = new SKColor(theme.Background);
-        canvas.DrawRect(x, y, textWidth + padding * 2, height, fpsBgPaint);
-
-        fpsPaint.Color = new SKColor(theme.Palette[8]); // Subtle: bright black / surface2
-        canvas.DrawText(text, x + padding, y + fpsFont.Size, fpsFont, fpsPaint);
     }
 
     public void Dispose()
     {
         textPaint.Dispose();
         backgroundPaint.Dispose();
-        fpsPaint.Dispose();
-        fpsBgPaint.Dispose();
-        fpsFont.Dispose();
         font.Dispose();
         typeface.Dispose();
     }

@@ -13,6 +13,7 @@ using Centaur.Core.Terminal;
 using Centaur.Pty.Windows;
 using Centaur.Rendering;
 using Avalonia.Interactivity;
+using Microsoft.Extensions.DependencyInjection;
 using SkiaSharp;
 
 namespace Centaur.App;
@@ -42,8 +43,7 @@ public class TerminalControl : Control
 
     public TerminalControl()
     {
-        host = new ExtensionHost();
-        host.RegisterProvider(new CatppuccinThemeProvider());
+        host = App.Services.GetRequiredService<ExtensionHost>();
 
         var themeProvider = host.GetProvider<IThemeProvider>();
         theme = themeProvider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
@@ -403,7 +403,8 @@ public class TerminalControl : Control
     public override void Render(DrawingContext context)
     {
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        context.Custom(new TerminalDrawOperation(bounds, buffer, renderer, bufferLock, GetNormalizedSelection()));
+        var overlays = host.GetProviders<IRenderOverlay>();
+        context.Custom(new TerminalDrawOperation(bounds, buffer, renderer, bufferLock, GetNormalizedSelection(), overlays));
     }
 
     class TerminalDrawOperation : ICustomDrawOperation
@@ -413,14 +414,17 @@ public class TerminalControl : Control
         readonly TerminalRenderer renderer;
         readonly object bufferLock;
         readonly TextSelection? selection;
+        readonly IReadOnlyList<IRenderOverlay> overlays;
 
-        public TerminalDrawOperation(Rect bounds, ScreenBuffer buffer, TerminalRenderer renderer, object bufferLock, TextSelection? selection)
+        public TerminalDrawOperation(Rect bounds, ScreenBuffer buffer, TerminalRenderer renderer,
+                                     object bufferLock, TextSelection? selection, IReadOnlyList<IRenderOverlay> overlays)
         {
             this.bounds = bounds;
             this.buffer = buffer;
             this.renderer = renderer;
             this.bufferLock = bufferLock;
             this.selection = selection;
+            this.overlays = overlays;
         }
 
         public Rect Bounds => bounds;
@@ -435,14 +439,16 @@ public class TerminalControl : Control
         {
             var leaseFeature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
             if (leaseFeature == null)
+            {
                 return;
+            }
 
             using var lease = leaseFeature.Lease();
             var canvas = lease.SkCanvas;
 
             lock (bufferLock)
             {
-                renderer.Render(canvas, buffer, (float)bounds.Width, selection);
+                renderer.Render(canvas, buffer, (float)bounds.Width, selection, overlays);
             }
         }
     }

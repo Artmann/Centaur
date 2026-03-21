@@ -20,25 +20,41 @@ public class TerminalEventBus : ITerminalEvents
 
     public void Publish<TEvent>(TEvent evt)
     {
-        if (!handlers.TryGetValue(typeof(TEvent), out var list)) return;
+        if (!handlers.TryGetValue(typeof(TEvent), out var list))
+        {
+            return;
+        }
+
         foreach (var handler in list.ToArray())
         {
             if (handler is Action<TEvent> sync)
+            {
                 sync(evt);
+            }
             else if (handler is Func<TEvent, Task> async_)
+            {
                 async_(evt).GetAwaiter().GetResult();
+            }
         }
     }
 
     public async Task PublishAsync<TEvent>(TEvent evt)
     {
-        if (!handlers.TryGetValue(typeof(TEvent), out var list)) return;
+        if (!handlers.TryGetValue(typeof(TEvent), out var list))
+        {
+            return;
+        }
+
         foreach (var handler in list.ToArray())
         {
             if (handler is Action<TEvent> sync)
+            {
                 sync(evt);
+            }
             else if (handler is Func<TEvent, Task> async_)
+            {
                 await async_(evt);
+            }
         }
     }
 

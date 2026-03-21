@@ -9,19 +9,49 @@ public class ExtensionHost : IExtensionContext, IAsyncDisposable
 
     public ITerminalEvents Events => events;
 
+    public ExtensionHost() { }
+
+    public ExtensionHost(IEnumerable<IProvider> providers, IEnumerable<IExtension> extensions)
+    {
+        foreach (var provider in providers)
+        {
+            this.providers.Add(provider);
+        }
+
+        foreach (var extension in extensions)
+        {
+            this.extensions.Add(extension);
+            if (extension is IProvider provider)
+            {
+                this.providers.Add(provider);
+            }
+        }
+    }
+
     public ExtensionHost RegisterProvider<T>(T provider) where T : class, IProvider
     {
-        if (activated) throw new InvalidOperationException("Cannot register after activation.");
+        if (activated)
+        {
+            throw new InvalidOperationException("Cannot register after activation.");
+        }
+
         providers.Add(provider);
         return this;
     }
 
     public ExtensionHost RegisterExtension(IExtension extension)
     {
-        if (activated) throw new InvalidOperationException("Cannot register after activation.");
+        if (activated)
+        {
+            throw new InvalidOperationException("Cannot register after activation.");
+        }
+
         extensions.Add(extension);
         if (extension is IProvider provider)
+        {
             providers.Add(provider);
+        }
+
         return this;
     }
 
@@ -31,7 +61,9 @@ public class ExtensionHost : IExtensionContext, IAsyncDisposable
         providers.Sort((a, b) => a.Priority.CompareTo(b.Priority));
 
         foreach (var ext in extensions)
+        {
             await ext.ActivateAsync(this);
+        }
 
         await events.PublishAsync(new TerminalReadyEvent());
     }
@@ -47,7 +79,9 @@ public class ExtensionHost : IExtensionContext, IAsyncDisposable
         await events.PublishAsync(new TerminalShutdownEvent());
 
         for (int i = extensions.Count - 1; i >= 0; i--)
+        {
             await extensions[i].DisposeAsync();
+        }
 
         extensions.Clear();
         providers.Clear();
