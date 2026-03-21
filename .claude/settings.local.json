@@ -31,7 +31,8 @@
       "Bash(dotnet list:*)",
       "Bash(grep -v \"^$\")",
       "Bash(grep -r \"RenderingMode\\\\|CompositionMode\\\\|VSync\\\\|FrameRate\" /c/Users/Artga/Code/Centaur/src --include=*.cs)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(gh run:*)"
     ]
   }
 }
