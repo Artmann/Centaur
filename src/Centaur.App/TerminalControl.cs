@@ -7,6 +7,7 @@ using Avalonia.Platform;
 using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
 using Avalonia.Threading;
+using Centaur.Core.Hosting;
 using Centaur.Core.Pty;
 using Centaur.Core.Terminal;
 using Centaur.Pty.Windows;
@@ -18,6 +19,7 @@ namespace Centaur.App;
 
 public class TerminalControl : Control
 {
+    readonly ExtensionHost host;
     readonly TerminalTheme theme;
     readonly ScreenBuffer buffer;
     readonly TerminalRenderer renderer;
@@ -40,7 +42,13 @@ public class TerminalControl : Control
 
     public TerminalControl()
     {
-        theme = CatppuccinThemes.Macchiato;
+        host = new ExtensionHost();
+        host.RegisterProvider(new CatppuccinThemeProvider());
+
+        var themeProvider = host.GetProvider<IThemeProvider>();
+        theme = themeProvider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
+                ?? CatppuccinThemes.Macchiato;
+
         buffer = new ScreenBuffer(80, 24, theme);
         renderer = new TerminalRenderer(theme);
         parser = new VtParser(buffer, theme);
@@ -56,17 +64,19 @@ public class TerminalControl : Control
         renderTimer.Tick += OnRenderTimerTick;
     }
 
-    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    protected override async void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        await host.ActivateAsync();
         renderTimer.Start();
         StartPty();
     }
 
-    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    protected override async void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         renderTimer.Stop();
         StopPty();
+        await host.DisposeAsync();
         base.OnDetachedFromVisualTree(e);
     }
 
