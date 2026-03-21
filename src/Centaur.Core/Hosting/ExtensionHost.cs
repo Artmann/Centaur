@@ -83,6 +83,7 @@ public class ExtensionHost : IExtensionContext, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        GC.SuppressFinalize(this);
         await events.PublishAsync(new TerminalShutdownEvent());
 
         for (int i = extensions.Count - 1; i >= 0; i--)

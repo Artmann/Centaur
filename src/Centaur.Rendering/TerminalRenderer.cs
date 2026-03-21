@@ -85,6 +85,7 @@ public class TerminalRenderer : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         textPaint.Dispose();
         backgroundPaint.Dispose();
         font.Dispose();

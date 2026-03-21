@@ -66,12 +66,16 @@ public class VtParser
                 break;
             case 0x08: // BS - backspace
                 if (buffer.cursorX > 0)
+                {
                     buffer.cursorX--;
+                }
                 break;
             case 0x09: // TAB
                 buffer.cursorX = ((buffer.cursorX / 8) + 1) * 8;
                 if (buffer.cursorX >= buffer.columns)
+                {
                     buffer.cursorX = buffer.columns - 1;
+                }
                 break;
             case 0x0A: // LF - line feed
             case 0x0B: // VT - vertical tab
@@ -110,9 +114,13 @@ public class VtParser
                 break;
             case (byte)'M': // RI - Reverse Index (move up)
                 if (buffer.cursorY > 0)
+                {
                     buffer.cursorY--;
+                }
                 else
+                {
                     buffer.ScrollDown(1);
+                }
                 state = State.Ground;
                 break;
             case (byte)'7': // DECSC - Save cursor
@@ -265,14 +273,18 @@ public class VtParser
                 for (int y = buffer.cursorY + 1; y < buffer.rows; y++)
                 {
                     for (int x = 0; x < buffer.columns; x++)
+                    {
                         buffer[x, y] = DefaultCell();
+                    }
                 }
                 break;
             case 1: // Erase from start of screen to cursor
                 for (int y = 0; y < buffer.cursorY; y++)
                 {
                     for (int x = 0; x < buffer.columns; x++)
+                    {
                         buffer[x, y] = DefaultCell();
+                    }
                 }
                 EraseInLine(1);
                 break;
@@ -289,15 +301,21 @@ public class VtParser
         {
             case 0: // Erase from cursor to end of line
                 for (int x = buffer.cursorX; x < buffer.columns; x++)
+                {
                     buffer[x, buffer.cursorY] = DefaultCell();
+                }
                 break;
             case 1: // Erase from start of line to cursor
                 for (int x = 0; x <= buffer.cursorX; x++)
+                {
                     buffer[x, buffer.cursorY] = DefaultCell();
+                }
                 break;
             case 2: // Erase entire line
                 for (int x = 0; x < buffer.columns; x++)
+                {
                     buffer[x, buffer.cursorY] = DefaultCell();
+                }
                 break;
         }
     }
@@ -310,10 +328,14 @@ public class VtParser
             for (int y = buffer.rows - 1; y > buffer.cursorY; y--)
             {
                 for (int x = 0; x < buffer.columns; x++)
+                {
                     buffer[x, y] = buffer[x, y - 1];
+                }
             }
             for (int x = 0; x < buffer.columns; x++)
+            {
                 buffer[x, buffer.cursorY] = DefaultCell();
+            }
         }
     }
 
@@ -325,10 +347,14 @@ public class VtParser
             for (int y = buffer.cursorY; y < buffer.rows - 1; y++)
             {
                 for (int x = 0; x < buffer.columns; x++)
+                {
                     buffer[x, y] = buffer[x, y + 1];
+                }
             }
             for (int x = 0; x < buffer.columns; x++)
+            {
                 buffer[x, buffer.rows - 1] = DefaultCell();
+            }
         }
     }
 
@@ -337,7 +363,9 @@ public class VtParser
         for (int i = 0; i < count; i++)
         {
             for (int x = buffer.cursorX; x < buffer.columns - 1; x++)
+            {
                 buffer[x, buffer.cursorY] = buffer[x + 1, buffer.cursorY];
+            }
             buffer[buffer.columns - 1, buffer.cursorY] = DefaultCell();
         }
     }
@@ -384,7 +412,9 @@ public class VtParser
     int ParseExtendedColor(int i, bool isForeground)
     {
         if (i + 1 >= csiParams.Count)
+        {
             return i;
+        }
         var mode = csiParams[i + 1];
 
         if (mode == 5 && i + 2 < csiParams.Count)
@@ -392,9 +422,13 @@ public class VtParser
             var colorIndex = csiParams[i + 2];
             var color = theme.GetColor(colorIndex);
             if (isForeground)
+            {
                 currentFg = color;
+            }
             else
+            {
                 currentBg = color;
+            }
             return i + 2;
         }
         else if (mode == 2 && i + 4 < csiParams.Count)
@@ -404,9 +438,13 @@ public class VtParser
             var b = (byte)csiParams[i + 4];
             var color = 0xFF000000u | ((uint)r << 16) | ((uint)g << 8) | b;
             if (isForeground)
+            {
                 currentFg = color;
+            }
             else
+            {
                 currentBg = color;
+            }
             return i + 4;
         }
         return i + 1;

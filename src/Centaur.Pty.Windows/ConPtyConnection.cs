@@ -50,7 +50,9 @@ public class ConPtyConnection : IPtyConnection
                 0
             )
         )
+        {
             throw new InvalidOperationException("Failed to create stdin pipe");
+        }
 
         // Pipe: Shell writes -> Terminal reads (stdout)
         if (
@@ -93,7 +95,9 @@ public class ConPtyConnection : IPtyConnection
             out hPC
         );
         if (result != 0)
+        {
             throw new InvalidOperationException($"CreatePseudoConsole failed: 0x{result:X8}");
+        }
 
         // Close the child-side handles (now owned by pseudo console)
         NativeMethods.CloseHandle(pipeToShellRead);
@@ -118,7 +122,9 @@ public class ConPtyConnection : IPtyConnection
                     ref attrListSize
                 )
             )
+            {
                 throw new InvalidOperationException("InitializeProcThreadAttributeList failed");
+            }
 
             // Add pseudo console attribute
             if (
@@ -132,12 +138,16 @@ public class ConPtyConnection : IPtyConnection
                     IntPtr.Zero
                 )
             )
+            {
                 throw new InvalidOperationException("UpdateProcThreadAttribute failed");
+            }
 
             // Build command line
             var commandLine = options.executable;
             if (options.arguments?.Length > 0)
+            {
                 commandLine += " " + string.Join(" ", options.arguments);
+            }
 
             // Create the process
             var processInfo = new PROCESS_INFORMATION();
@@ -157,9 +167,11 @@ public class ConPtyConnection : IPtyConnection
                     out processInfo
                 )
             )
+            {
                 throw new InvalidOperationException(
                     $"CreateProcess failed: {Marshal.GetLastWin32Error()}"
                 );
+            }
 
             ProcessId = processInfo.dwProcessId;
             processHandle = new SafeFileHandle(processInfo.hProcess, true);
@@ -182,7 +194,9 @@ public class ConPtyConnection : IPtyConnection
     async Task OutputPumpAsync(CancellationToken ct)
     {
         if (pipeFromShellRead == null)
+        {
             return;
+        }
 
         var buffer = new byte[4096];
         var handle = pipeFromShellRead.DangerousGetHandle();
@@ -223,10 +237,14 @@ public class ConPtyConnection : IPtyConnection
                         IntPtr.Zero
                     )
                 )
+                {
                     break;
+                }
 
                 if (bytesRead == 0)
+                {
                     break;
+                }
 
                 await outputPipe.Writer.WriteAsync(
                     new ReadOnlyMemory<byte>(buffer, 0, bytesRead),
@@ -245,7 +263,9 @@ public class ConPtyConnection : IPtyConnection
     async Task InputPumpAsync(CancellationToken ct)
     {
         if (pipeToShellWrite == null)
+        {
             return;
+        }
 
         var handle = pipeToShellWrite.DangerousGetHandle();
 
@@ -271,7 +291,9 @@ public class ConPtyConnection : IPtyConnection
                 inputPipe.Reader.AdvanceTo(buffer.End);
 
                 if (result.IsCompleted)
+                {
                     break;
+                }
             }
         }
         catch (OperationCanceledException) { }
@@ -285,7 +307,9 @@ public class ConPtyConnection : IPtyConnection
     async Task ProcessMonitorAsync(CancellationToken ct)
     {
         if (processHandle == null)
+        {
             return;
+        }
 
         try
         {
@@ -299,7 +323,9 @@ public class ConPtyConnection : IPtyConnection
                             100
                         );
                         if (waitResult == 0) // WAIT_OBJECT_0
+                        {
                             break;
+                        }
                     }
                 },
                 ct
@@ -335,6 +361,7 @@ public class ConPtyConnection : IPtyConnection
 
     public async ValueTask DisposeAsync()
     {
+        GC.SuppressFinalize(this);
         cts?.Cancel();
 
         if (outputPumpTask != null)
@@ -362,7 +389,9 @@ public class ConPtyConnection : IPtyConnection
         await inputPipe.Writer.CompleteAsync();
 
         if (hPC != IntPtr.Zero)
+        {
             NativeMethods.ClosePseudoConsole(hPC);
+        }
 
         pipeToShellWrite?.Dispose();
         pipeFromShellRead?.Dispose();

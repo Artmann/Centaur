@@ -68,7 +68,9 @@ public class ScreenBuffer
     public void ScrollUp(int lines = 1)
     {
         if (lines <= 0)
+        {
             return;
+        }
         if (lines >= rows)
         {
             Array.Fill(cells, defaultCell);
@@ -81,7 +83,9 @@ public class ScreenBuffer
     public void ScrollDown(int lines = 1)
     {
         if (lines <= 0)
+        {
             return;
+        }
         if (lines >= rows)
         {
             Array.Fill(cells, defaultCell);

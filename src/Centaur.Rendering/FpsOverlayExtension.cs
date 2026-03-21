@@ -64,6 +64,7 @@ public class FpsOverlayExtension : IExtension, IRenderOverlay
 
     public ValueTask DisposeAsync()
     {
+        GC.SuppressFinalize(this);
         fpsPaint?.Dispose();
         fpsBgPaint?.Dispose();
         fpsFont?.Dispose();
