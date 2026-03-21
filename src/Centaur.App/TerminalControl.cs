@@ -83,11 +83,8 @@ public class TerminalControl : Control
 
     void OnRenderTimerTick(object? sender, EventArgs e)
     {
-        if (hasPendingUpdates)
-        {
-            hasPendingUpdates = false;
-            InvalidateVisual();
-        }
+        hasPendingUpdates = false;
+        InvalidateVisual();
     }
 
     async void StartPty()
