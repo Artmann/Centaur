@@ -10,12 +10,15 @@ public class ScreenBuffer
     public int cursorY { get; set; }
 
     readonly Cell[] cells;
-    static readonly Cell defaultCell = new();
+    readonly Cell defaultCell;
 
-    public ScreenBuffer(int columns, int rows)
+    public ScreenBuffer(int columns, int rows) : this(columns, rows, CatppuccinThemes.Macchiato) { }
+
+    public ScreenBuffer(int columns, int rows, TerminalTheme theme)
     {
         this.columns = columns;
         this.rows = rows;
+        defaultCell = new Cell(' ', theme.Foreground, theme.Background);
 
         cells = new Cell[columns * rows];
 
@@ -53,7 +56,7 @@ public class ScreenBuffer
             ScrollUp(1);
             cursorY = rows - 1;
         }
-        this[cursorX, cursorY] = new Cell(c);
+        this[cursorX, cursorY] = new Cell(c, defaultCell.foreground, defaultCell.background);
         cursorX++;
     }
 

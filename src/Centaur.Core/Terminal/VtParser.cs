@@ -3,6 +3,9 @@ namespace Centaur.Core.Terminal;
 public class VtParser
 {
     readonly ScreenBuffer buffer;
+    readonly TerminalTheme theme;
+    uint currentFg;
+    uint currentBg;
 
     enum State
     {
@@ -16,9 +19,14 @@ public class VtParser
     readonly List<int> csiParams = new();
     int currentParam;
 
-    public VtParser(ScreenBuffer buffer)
+    public VtParser(ScreenBuffer buffer) : this(buffer, CatppuccinThemes.Macchiato) { }
+
+    public VtParser(ScreenBuffer buffer, TerminalTheme theme)
     {
         this.buffer = buffer;
+        this.theme = theme;
+        currentFg = theme.Foreground;
+        currentBg = theme.Background;
     }
 
     public void Process(ReadOnlySpan<byte> data)
@@ -210,7 +218,7 @@ public class VtParser
                 buffer.cursorY = Math.Clamp(Param(0) - 1, 0, buffer.rows - 1);
                 break;
             case 'm': // SGR - Select Graphic Rendition
-                // TODO: handle colors/attributes
+                HandleSgr();
                 break;
             case 'h': // SM - Set Mode
             case 'l': // RM - Reset Mode
@@ -222,6 +230,8 @@ public class VtParser
         }
     }
 
+    Cell DefaultCell() => new(' ', theme.Foreground, theme.Background);
+
     void WriteChar(char c)
     {
         if (buffer.cursorX >= buffer.columns)
@@ -229,7 +239,7 @@ public class VtParser
             buffer.cursorX = 0;
             LineFeed();
         }
-        buffer[buffer.cursorX, buffer.cursorY] = new Cell(c);
+        buffer[buffer.cursorX, buffer.cursorY] = new Cell(c, currentFg, currentBg);
         buffer.cursorX++;
     }
 
@@ -254,14 +264,14 @@ public class VtParser
                 for (int y = buffer.cursorY + 1; y < buffer.rows; y++)
                 {
                     for (int x = 0; x < buffer.columns; x++)
-                        buffer[x, y] = new Cell();
+                        buffer[x, y] = DefaultCell();
                 }
                 break;
             case 1: // Erase from start of screen to cursor
                 for (int y = 0; y < buffer.cursorY; y++)
                 {
                     for (int x = 0; x < buffer.columns; x++)
-                        buffer[x, y] = new Cell();
+                        buffer[x, y] = DefaultCell();
                 }
                 EraseInLine(1);
                 break;
@@ -278,15 +288,15 @@ public class VtParser
         {
             case 0: // Erase from cursor to end of line
                 for (int x = buffer.cursorX; x < buffer.columns; x++)
-                    buffer[x, buffer.cursorY] = new Cell();
+                    buffer[x, buffer.cursorY] = DefaultCell();
                 break;
             case 1: // Erase from start of line to cursor
                 for (int x = 0; x <= buffer.cursorX; x++)
-                    buffer[x, buffer.cursorY] = new Cell();
+                    buffer[x, buffer.cursorY] = DefaultCell();
                 break;
             case 2: // Erase entire line
                 for (int x = 0; x < buffer.columns; x++)
-                    buffer[x, buffer.cursorY] = new Cell();
+                    buffer[x, buffer.cursorY] = DefaultCell();
                 break;
         }
     }
@@ -302,7 +312,7 @@ public class VtParser
                     buffer[x, y] = buffer[x, y - 1];
             }
             for (int x = 0; x < buffer.columns; x++)
-                buffer[x, buffer.cursorY] = new Cell();
+                buffer[x, buffer.cursorY] = DefaultCell();
         }
     }
 
@@ -317,7 +327,7 @@ public class VtParser
                     buffer[x, y] = buffer[x, y + 1];
             }
             for (int x = 0; x < buffer.columns; x++)
-                buffer[x, buffer.rows - 1] = new Cell();
+                buffer[x, buffer.rows - 1] = DefaultCell();
         }
     }
 
@@ -327,7 +337,70 @@ public class VtParser
         {
             for (int x = buffer.cursorX; x < buffer.columns - 1; x++)
                 buffer[x, buffer.cursorY] = buffer[x + 1, buffer.cursorY];
-            buffer[buffer.columns - 1, buffer.cursorY] = new Cell();
+            buffer[buffer.columns - 1, buffer.cursorY] = DefaultCell();
         }
+    }
+
+    void HandleSgr()
+    {
+        for (int i = 0; i < csiParams.Count; i++)
+        {
+            var p = csiParams[i];
+            switch (p)
+            {
+                case 0:
+                    currentFg = theme.Foreground;
+                    currentBg = theme.Background;
+                    break;
+                case >= 30 and <= 37:
+                    currentFg = theme.GetColor(p - 30);
+                    break;
+                case 39:
+                    currentFg = theme.Foreground;
+                    break;
+                case >= 40 and <= 47:
+                    currentBg = theme.GetColor(p - 40);
+                    break;
+                case 49:
+                    currentBg = theme.Background;
+                    break;
+                case >= 90 and <= 97:
+                    currentFg = theme.GetColor(p - 90 + 8);
+                    break;
+                case >= 100 and <= 107:
+                    currentBg = theme.GetColor(p - 100 + 8);
+                    break;
+                case 38:
+                    i = ParseExtendedColor(i, isForeground: true);
+                    break;
+                case 48:
+                    i = ParseExtendedColor(i, isForeground: false);
+                    break;
+            }
+        }
+    }
+
+    int ParseExtendedColor(int i, bool isForeground)
+    {
+        if (i + 1 >= csiParams.Count) return i;
+        var mode = csiParams[i + 1];
+
+        if (mode == 5 && i + 2 < csiParams.Count)
+        {
+            var colorIndex = csiParams[i + 2];
+            var color = theme.GetColor(colorIndex);
+            if (isForeground) currentFg = color; else currentBg = color;
+            return i + 2;
+        }
+        else if (mode == 2 && i + 4 < csiParams.Count)
+        {
+            var r = (byte)csiParams[i + 2];
+            var g = (byte)csiParams[i + 3];
+            var b = (byte)csiParams[i + 4];
+            var color = 0xFF000000u | ((uint)r << 16) | ((uint)g << 8) | b;
+            if (isForeground) currentFg = color; else currentBg = color;
+            return i + 4;
+        }
+        return i + 1;
     }
 }

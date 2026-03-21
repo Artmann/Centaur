@@ -18,6 +18,7 @@ namespace Centaur.App;
 
 public class TerminalControl : Control
 {
+    readonly TerminalTheme theme;
     readonly ScreenBuffer buffer;
     readonly TerminalRenderer renderer;
     readonly VtParser parser;
@@ -39,9 +40,10 @@ public class TerminalControl : Control
 
     public TerminalControl()
     {
-        buffer = new ScreenBuffer(80, 24);
-        renderer = new TerminalRenderer();
-        parser = new VtParser(buffer);
+        theme = CatppuccinThemes.Macchiato;
+        buffer = new ScreenBuffer(80, 24, theme);
+        renderer = new TerminalRenderer(theme);
+        parser = new VtParser(buffer, theme);
 
         Focusable = true;
         ClipToBounds = true;
@@ -430,7 +432,7 @@ public class TerminalControl : Control
 
             lock (bufferLock)
             {
-                renderer.Render(canvas, buffer, selection);
+                renderer.Render(canvas, buffer, (float)bounds.Width, selection);
             }
         }
     }
