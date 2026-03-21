@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Centaur.Core\Centaur.Core.csproj" />
     <ProjectReference Include="..\..\src\Centaur.Pty.Windows\Centaur.Pty.Windows.csproj" />
+    <ProjectReference Include="..\..\src\Centaur.Rendering\Centaur.Rendering.csproj" />
   </ItemGroup>
 
 </Project>

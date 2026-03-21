@@ -11,6 +11,7 @@ using Centaur.Core.Pty;
 using Centaur.Core.Terminal;
 using Centaur.Pty.Windows;
 using Centaur.Rendering;
+using Avalonia.Interactivity;
 using SkiaSharp;
 
 namespace Centaur.App;
@@ -27,6 +28,12 @@ public class TerminalControl : Control
     CancellationTokenSource? readCts;
     Task? readTask;
     volatile bool hasPendingUpdates;
+
+    // Selection state (UI thread only)
+    int selAnchorCol, selAnchorRow;
+    int selCurrentCol, selCurrentRow;
+    bool isDragging;
+    bool hasSelection;
 
     public TerminalControl()
     {
@@ -138,6 +145,60 @@ public class TerminalControl : Control
         catch (Exception) { }
     }
 
+    (int col, int row) PixelToGrid(Point p)
+    {
+        var col = Math.Clamp((int)(p.X / renderer.cellWidth), 0, buffer.columns - 1);
+        var row = Math.Clamp((int)(p.Y / renderer.cellHeight), 0, buffer.rows - 1);
+        return (col, row);
+    }
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+        var (col, row) = PixelToGrid(e.GetPosition(this));
+        selAnchorCol = col;
+        selAnchorRow = row;
+        selCurrentCol = col;
+        selCurrentRow = row;
+        isDragging = true;
+        hasSelection = false;
+        hasPendingUpdates = true;
+        e.Pointer.Capture(this);
+        e.Handled = true;
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        if (!isDragging) return;
+
+        var (col, row) = PixelToGrid(e.GetPosition(this));
+        selCurrentCol = col;
+        selCurrentRow = row;
+
+        if (col != selAnchorCol || row != selAnchorRow)
+            hasSelection = true;
+
+        hasPendingUpdates = true;
+        e.Handled = true;
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        if (!isDragging) return;
+
+        isDragging = false;
+        e.Pointer.Capture(null);
+
+        var (col, row) = PixelToGrid(e.GetPosition(this));
+        if (col == selAnchorCol && row == selAnchorRow)
+            hasSelection = false;
+
+        hasPendingUpdates = true;
+        e.Handled = true;
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
@@ -149,9 +210,16 @@ public class TerminalControl : Control
         // Handle Ctrl+key combinations
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
+            if (e.Key == Key.C && hasSelection)
+            {
+                CopySelectionToClipboard();
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key >= Key.A && e.Key <= Key.Z)
             {
-                // Ctrl+A = 0x01, Ctrl+B = 0x02, etc.
+                // Ctrl+A = 0x01, Ctrl+C (no selection) = 0x03, etc.
                 bytes = new byte[] { (byte)(e.Key - Key.A + 1) };
             }
         }
@@ -219,10 +287,33 @@ public class TerminalControl : Control
         catch (Exception) { }
     }
 
+    async void CopySelectionToClipboard()
+    {
+        var sel = TextSelection.Normalize(selAnchorCol, selAnchorRow, selCurrentCol, selCurrentRow);
+        string text;
+        lock (bufferLock)
+        {
+            text = TextSelection.ExtractText(buffer, sel);
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard != null)
+            await clipboard.SetTextAsync(text);
+
+        hasSelection = false;
+        hasPendingUpdates = true;
+    }
+
+    TextSelection? GetNormalizedSelection()
+    {
+        if (!hasSelection) return null;
+        return TextSelection.Normalize(selAnchorCol, selAnchorRow, selCurrentCol, selCurrentRow);
+    }
+
     public override void Render(DrawingContext context)
     {
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        context.Custom(new TerminalDrawOperation(bounds, buffer, renderer, bufferLock));
+        context.Custom(new TerminalDrawOperation(bounds, buffer, renderer, bufferLock, GetNormalizedSelection()));
     }
 
     class TerminalDrawOperation : ICustomDrawOperation
@@ -231,13 +322,15 @@ public class TerminalControl : Control
         readonly ScreenBuffer buffer;
         readonly TerminalRenderer renderer;
         readonly object bufferLock;
+        readonly TextSelection? selection;
 
-        public TerminalDrawOperation(Rect bounds, ScreenBuffer buffer, TerminalRenderer renderer, object bufferLock)
+        public TerminalDrawOperation(Rect bounds, ScreenBuffer buffer, TerminalRenderer renderer, object bufferLock, TextSelection? selection)
         {
             this.bounds = bounds;
             this.buffer = buffer;
             this.renderer = renderer;
             this.bufferLock = bufferLock;
+            this.selection = selection;
         }
 
         public Rect Bounds => bounds;
@@ -259,7 +352,7 @@ public class TerminalControl : Control
 
             lock (bufferLock)
             {
-                renderer.Render(canvas, buffer);
+                renderer.Render(canvas, buffer, selection);
             }
         }
     }

@@ -34,7 +34,7 @@ public class TerminalRenderer : IDisposable
         cellHeight = fontSize * 1.2f;
     }
 
-    public void Render(SKCanvas canvas, ScreenBuffer buffer)
+    public void Render(SKCanvas canvas, ScreenBuffer buffer, TextSelection? selection = null)
     {
         canvas.Clear(SKColors.Black);
 
@@ -46,17 +46,21 @@ public class TerminalRenderer : IDisposable
                 var px = x * cellWidth;
                 var py = y * cellHeight;
 
-                // Draw background if not default black
-                if (cell.background != 0xFF000000)
+                var selected = selection.HasValue && TextSelection.IsInSelection(x, y, selection.Value);
+                var fg = selected ? cell.background : cell.foreground;
+                var bg = selected ? cell.foreground : cell.background;
+
+                // Draw background if not default black, or if selected
+                if (bg != 0xFF000000 || selected)
                 {
-                    backgroundPaint.Color = new SKColor(cell.background);
+                    backgroundPaint.Color = new SKColor(bg);
                     canvas.DrawRect(px, py, cellWidth, cellHeight, backgroundPaint);
                 }
 
                 // Draw character
                 if (cell.character != ' ')
                 {
-                    textPaint.Color = new SKColor(cell.foreground);
+                    textPaint.Color = new SKColor(fg);
                     canvas.DrawText(
                         cell.character.ToString(),
                         px,
