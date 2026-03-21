@@ -27,11 +27,11 @@ public class TerminalControl : Control
     readonly TerminalRenderer renderer;
     readonly VtParser parser;
     readonly object bufferLock = new();
-    readonly DispatcherTimer renderTimer;
 
     ConPtyConnection? pty;
     CancellationTokenSource? readCts;
     Task? readTask;
+    bool isAttached;
 
     // Selection state (UI thread only)
     int selAnchorCol,
@@ -60,23 +60,20 @@ public class TerminalControl : Control
 
         Focusable = true;
         ClipToBounds = true;
-
-        // 16ms timer for ~60fps frame pacing
-        renderTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-        renderTimer.Tick += OnRenderTimerTick;
     }
 
     protected override async void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         await host.ActivateAsync();
-        renderTimer.Start();
+        isAttached = true;
+        ScheduleFrame();
         StartPty();
     }
 
     protected override async void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        renderTimer.Stop();
+        isAttached = false;
         StopPty();
         await host.DisposeAsync();
         renderer.Dispose();
@@ -84,9 +81,25 @@ public class TerminalControl : Control
         base.OnDetachedFromVisualTree(e);
     }
 
-    void OnRenderTimerTick(object? sender, EventArgs e)
+    void ScheduleFrame()
     {
+        if (!isAttached)
+        {
+            return;
+        }
+
+        TopLevel.GetTopLevel(this)?.RequestAnimationFrame(OnFrame);
+    }
+
+    void OnFrame(TimeSpan timestamp)
+    {
+        if (!isAttached)
+        {
+            return;
+        }
+
         InvalidateVisual();
+        ScheduleFrame();
     }
 
     async void StartPty()
@@ -411,12 +424,19 @@ public class TerminalControl : Control
     {
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
         var overlays = host.GetProviders<IRenderOverlay>();
+
+        // Snapshot buffer under lock so render doesn't block PTY reads
+        ScreenBuffer snapshot;
+        lock (bufferLock)
+        {
+            snapshot = buffer.Snapshot();
+        }
+
         context.Custom(
             new TerminalDrawOperation(
                 bounds,
-                buffer,
+                snapshot,
                 renderer,
-                bufferLock,
                 GetNormalizedSelection(),
                 overlays
             )
@@ -426,25 +446,22 @@ public class TerminalControl : Control
     sealed class TerminalDrawOperation : ICustomDrawOperation
     {
         readonly Rect bounds;
-        readonly ScreenBuffer buffer;
+        readonly ScreenBuffer snapshot;
         readonly TerminalRenderer renderer;
-        readonly object bufferLock;
         readonly TextSelection? selection;
         readonly IReadOnlyList<IRenderOverlay> overlays;
 
         public TerminalDrawOperation(
             Rect bounds,
-            ScreenBuffer buffer,
+            ScreenBuffer snapshot,
             TerminalRenderer renderer,
-            object bufferLock,
             TextSelection? selection,
             IReadOnlyList<IRenderOverlay> overlays
         )
         {
             this.bounds = bounds;
-            this.buffer = buffer;
+            this.snapshot = snapshot;
             this.renderer = renderer;
-            this.bufferLock = bufferLock;
             this.selection = selection;
             this.overlays = overlays;
         }
@@ -468,10 +485,7 @@ public class TerminalControl : Control
             using var lease = leaseFeature.Lease();
             var canvas = lease.SkCanvas;
 
-            lock (bufferLock)
-            {
-                renderer.Render(canvas, buffer, (float)bounds.Width, selection, overlays);
-            }
+            renderer.Render(canvas, snapshot, (float)bounds.Width, selection, overlays);
         }
     }
 }

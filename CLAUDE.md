@@ -1,4 +1,5 @@
 - Don't use CONSTANT_CASE. Use camelCase or PascalCase for variables and functions.
+- Don't include Claude in the commits
 
 ## Formatting and Linting
 
@@ -24,6 +25,7 @@
 The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage component lifecycle and extensibility.
 
 ### Extensions (activate/dispose)
+
 - Implement `IExtension` (`ActivateAsync` + `IAsyncDisposable`)
 - During activation, extensions receive an `IExtensionContext` to query providers and subscribe to events
 - Subscribe to typed events via `context.Events.Subscribe<TEvent>()` — returns `IDisposable` for cleanup
@@ -31,6 +33,7 @@ The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage compon
 - Example: `FpsOverlayExtension` in Centaur.Rendering
 
 ### Providers
+
 - Implement `IProvider` (with `Priority` for ordering) and a domain-specific interface (e.g., `IThemeProvider`, `IRenderOverlay`)
 - Providers are passive — they supply data/capabilities, no lifecycle needed
 - An extension can also be a provider (auto-registered as both)
@@ -38,11 +41,13 @@ The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage compon
 - Example: `CatppuccinThemeProvider` implements `IThemeProvider`
 
 ### Events
+
 - Defined as record types in `TerminalHooks.cs` (e.g., `TerminalReadyEvent`, `ThemeChangedEvent`)
 - Published via `events.Publish<T>()` (sync) or `events.PublishAsync<T>()` (async)
 - Adding a new hook = adding a new record type, no enums or string keys
 
 ### Wiring
+
 - Extensions and providers are registered in `App.ConfigureServices()` using `Microsoft.Extensions.DependencyInjection`
 - `ExtensionHost` is a singleton resolved from the DI container
 - `TerminalControl` resolves the host via `App.Services.GetRequiredService<ExtensionHost>()`
@@ -57,3 +62,4 @@ The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage compon
 - Resolve via DI: `App.Services.GetRequiredService<INotificationService>()`
 - Error messages must be **actionable** — tell the user what went wrong and what they can do about it
 - When planning features, always consider what errors can occur and include the exact error messages in the plan
+

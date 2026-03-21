@@ -16,6 +16,9 @@ public class ScreenBuffer
     readonly Cell[] cells;
     readonly Cell defaultCell;
 
+    // Pre-allocated snapshot buffer for lock-free rendering
+    ScreenBuffer? snapshotBuffer;
+
     public ScreenBuffer(int columns, int rows)
         : this(columns, rows, CatppuccinThemes.Macchiato) { }
 
@@ -40,6 +43,17 @@ public class ScreenBuffer
                 cells[y * columns + x] = value;
             }
         }
+    }
+
+    public ReadOnlySpan<Cell> GetRow(int y) => cells.AsSpan(y * columns, columns);
+
+    public ScreenBuffer Snapshot()
+    {
+        snapshotBuffer ??= new ScreenBuffer(columns, rows);
+        Array.Copy(cells, snapshotBuffer.cells, cells.Length);
+        snapshotBuffer.cursorX = cursorX;
+        snapshotBuffer.cursorY = cursorY;
+        return snapshotBuffer;
     }
 
     public void Clear()

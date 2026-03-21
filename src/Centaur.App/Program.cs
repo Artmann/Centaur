@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Win32;
 
 namespace Centaur.App;
 
@@ -9,5 +10,10 @@ sealed class Program
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
 
     public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>().UsePlatformDetect().WithInterFont().LogToTrace();
+        AppBuilder
+            .Configure<App>()
+            .UsePlatformDetect()
+            .With(new Win32PlatformOptions { RenderingMode = [Win32RenderingMode.AngleEgl] })
+            .WithInterFont()
+            .LogToTrace();
 }

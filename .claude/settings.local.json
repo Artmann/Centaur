@@ -27,7 +27,11 @@
       "Bash(dotnet clean:*)",
       "Bash(tee /tmp/build2.log)",
       "Bash(tee /tmp/build3.log)",
-      "Bash(tee /tmp/build4.log)"
+      "Bash(tee /tmp/build4.log)",
+      "Bash(dotnet list:*)",
+      "Bash(grep -v \"^$\")",
+      "Bash(grep -r \"RenderingMode\\\\|CompositionMode\\\\|VSync\\\\|FrameRate\" /c/Users/Artga/Code/Centaur/src --include=*.cs)",
+      "WebSearch"
     ]
   }
 }
