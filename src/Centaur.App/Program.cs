@@ -2,7 +2,7 @@ using Avalonia;
 
 namespace Centaur.App;
 
-class Program
+sealed class Program
 {
     [STAThread]
     public static void Main(string[] args) =>

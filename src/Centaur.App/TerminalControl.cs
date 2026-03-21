@@ -28,10 +28,9 @@ public class TerminalControl : Control
     readonly object bufferLock = new();
     readonly DispatcherTimer renderTimer;
 
-    IPtyConnection? pty;
+    ConPtyConnection? pty;
     CancellationTokenSource? readCts;
     Task? readTask;
-    volatile bool hasPendingUpdates;
 
     // Selection state (UI thread only)
     int selAnchorCol,
@@ -78,12 +77,13 @@ public class TerminalControl : Control
         renderTimer.Stop();
         StopPty();
         await host.DisposeAsync();
+        renderer.Dispose();
+        readCts?.Dispose();
         base.OnDetachedFromVisualTree(e);
     }
 
     void OnRenderTimerTick(object? sender, EventArgs e)
     {
-        hasPendingUpdates = false;
         InvalidateVisual();
     }
 
@@ -152,9 +152,6 @@ public class TerminalControl : Control
 
                 pty.Output.AdvanceTo(ptyBuffer.End);
 
-                // Signal that we have updates - timer will coalesce and render
-                hasPendingUpdates = true;
-
                 if (result.IsCompleted)
                     break;
             }
@@ -213,7 +210,7 @@ public class TerminalControl : Control
         }
 
         isDragging = true;
-        hasPendingUpdates = true;
+
         e.Pointer.Capture(this);
         e.Handled = true;
     }
@@ -275,7 +272,6 @@ public class TerminalControl : Control
                 hasSelection = true;
         }
 
-        hasPendingUpdates = true;
         e.Handled = true;
     }
 
@@ -292,7 +288,6 @@ public class TerminalControl : Control
         if (selectionMode == 0 && col == selAnchorCol && row == selAnchorRow)
             hasSelection = false;
 
-        hasPendingUpdates = true;
         e.Handled = true;
     }
 
@@ -401,7 +396,6 @@ public class TerminalControl : Control
             await clipboard.SetTextAsync(text);
 
         hasSelection = false;
-        hasPendingUpdates = true;
     }
 
     TextSelection? GetNormalizedSelection()
@@ -427,7 +421,7 @@ public class TerminalControl : Control
         );
     }
 
-    class TerminalDrawOperation : ICustomDrawOperation
+    sealed class TerminalDrawOperation : ICustomDrawOperation
     {
         readonly Rect bounds;
         readonly ScreenBuffer buffer;

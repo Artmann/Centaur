@@ -15,8 +15,8 @@ indent_size = 2
 # Namespace
 csharp_style_namespace_declarations = file_scoped:warning
 
-# Braces
-csharp_prefer_braces = true:warning
+# Braces - CSharpier owns formatting, disable IDE0011 to avoid conflicts
+csharp_prefer_braces = true:none
 
 # var preferences
 csharp_style_var_for_built_in_types = true:suggestion
@@ -58,3 +58,4 @@ dotnet_diagnostic.CA1848.severity = none         # LoggerMessage delegates
 dotnet_diagnostic.CA1062.severity = none         # Validate arguments of public methods
 dotnet_diagnostic.CA2007.severity = none         # Do not directly await a Task (not relevant for UI apps)
 dotnet_diagnostic.CA1716.severity = none         # Identifiers should not match keywords
+dotnet_diagnostic.CA1001.severity = none         # Avalonia controls use OnDetachedFromVisualTree, not IDisposable

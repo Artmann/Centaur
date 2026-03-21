@@ -339,7 +339,11 @@ public class ConPtyConnection : IPtyConnection
         if (hPC != IntPtr.Zero)
         {
             var size = new COORD { X = (short)columns, Y = (short)rows };
-            NativeMethods.ResizePseudoConsole(hPC, size);
+            var result = NativeMethods.ResizePseudoConsole(hPC, size);
+            if (result != 0)
+            {
+                throw new InvalidOperationException($"ResizePseudoConsole failed: 0x{result:X8}");
+            }
         }
     }
 
@@ -365,23 +369,29 @@ public class ConPtyConnection : IPtyConnection
         cts?.Cancel();
 
         if (outputPumpTask != null)
+        {
             try
             {
                 await outputPumpTask;
             }
             catch { }
+        }
         if (inputPumpTask != null)
+        {
             try
             {
                 await inputPumpTask;
             }
             catch { }
+        }
         if (processMonitorTask != null)
+        {
             try
             {
                 await processMonitorTask;
             }
             catch { }
+        }
 
         await outputPipe.Reader.CompleteAsync();
         await outputPipe.Writer.CompleteAsync();
