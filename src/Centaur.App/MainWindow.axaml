@@ -5,8 +5,76 @@
     Title="Centaur"
     Width="800"
     Height="600"
-    Background="#24273A">
+    Background="#24273A"
+    ExtendClientAreaToDecorationsHint="True"
+    ExtendClientAreaChromeHints="NoChrome"
+    ExtendClientAreaTitleBarHeightHint="28">
     <Panel>
+        <!-- Title bar wrapper (shifts down when maximized via OffScreenMargin) -->
+        <Panel x:Name="titleBarPanel" Height="28" VerticalAlignment="Top">
+            <!-- Drag region -->
+            <Border x:Name="titleBar" Background="Transparent" />
+            <!-- Centered title -->
+            <TextBlock Text="Centaur"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="#7F849C"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       IsHitTestVisible="False" />
+            <!-- Caption buttons -->
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                <Button x:Name="minimizeButton" Classes="captionButton">
+                    <Path Stroke="#6E738D" StrokeThickness="1" Data="M0,5 L10,5" Width="10" Height="10" />
+                </Button>
+                <Button x:Name="maximizeButton" Classes="captionButton">
+                    <Path Stroke="#6E738D" StrokeThickness="1" Fill="Transparent"
+                          Data="M0,0 L10,0 L10,10 L0,10 Z" Width="10" Height="10" />
+                </Button>
+                <Button x:Name="closeButton" Classes="captionButton">
+                    <Path Stroke="#6E738D" StrokeThickness="1" Data="M0,0 L10,10 M10,0 L0,10" Width="10" Height="10" />
+                </Button>
+            </StackPanel>
+        </Panel>
         <local:TerminalControl x:Name="terminal" />
     </Panel>
+
+    <Window.Styles>
+        <!-- Base caption button style -->
+        <Style Selector="Button.captionButton">
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <!-- Min/Max hover -->
+        <Style Selector="Button#minimizeButton:pointerover /template/ ContentPresenter,
+                         Button#maximizeButton:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#363A4F" />
+        </Style>
+        <Style Selector="Button#minimizeButton:pointerover Path,
+                         Button#maximizeButton:pointerover Path">
+            <Setter Property="Stroke" Value="#CAD3F5" />
+        </Style>
+        <!-- Close hover -->
+        <Style Selector="Button#closeButton:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#ED8796" />
+        </Style>
+        <Style Selector="Button#closeButton:pointerover Path">
+            <Setter Property="Stroke" Value="#24273A" />
+        </Style>
+        <!-- Min/Max pressed -->
+        <Style Selector="Button#minimizeButton:pressed /template/ ContentPresenter,
+                         Button#maximizeButton:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#494D64" />
+        </Style>
+        <!-- Close pressed -->
+        <Style Selector="Button#closeButton:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#EE99A8" />
+        </Style>
+    </Window.Styles>
 </Window>

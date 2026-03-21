@@ -1,0 +1,95 @@
+<h2>Title Bar Customization</h2>
+<p class="subtitle">Which approach feels right for Centaur's terminal?</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 0; overflow: hidden;">
+      <!-- Approach A: Custom title bar with theme colors -->
+      <div style="background: #24273A; border-radius: 8px; overflow: hidden; font-family: 'Inter', system-ui, sans-serif;">
+        <!-- Title bar -->
+        <div style="background: #1e2030; height: 32px; display: flex; align-items: center; padding: 0 12px; gap: 8px;">
+          <span style="color: #cad3f5; font-size: 12px; font-weight: 600; opacity: 0.8;">Centaur</span>
+          <div style="flex: 1;"></div>
+          <div style="display: flex; gap: 2px;">
+            <div style="width: 36px; height: 32px; display: flex; align-items: center; justify-content: center;">
+              <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="#cad3f5" opacity="0.6"/></svg>
+            </div>
+            <div style="width: 36px; height: 32px; display: flex; align-items: center; justify-content: center;">
+              <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="none" stroke="#cad3f5" stroke-width="1" opacity="0.6"/></svg>
+            </div>
+            <div style="width: 36px; height: 32px; display: flex; align-items: center; justify-content: center;">
+              <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10" stroke="#cad3f5" stroke-width="1.2" opacity="0.6"/><line x1="10" y1="0" x2="0" y2="10" stroke="#cad3f5" stroke-width="1.2" opacity="0.6"/></svg>
+            </div>
+          </div>
+        </div>
+        <!-- Terminal content -->
+        <div style="padding: 8px 12px; color: #cad3f5; font-family: monospace; font-size: 11px; height: 100px;">
+          <span style="color: #a6da95;">user@host</span><span style="color: #8aadf4;">:</span><span style="color: #8aadf4;">~/projects</span><span style="color: #cad3f5;">$ </span><span style="color: #cad3f5;">ls -la</span>
+          <br><span style="color: #6e738d;">total 42</span>
+          <br><span style="color: #8aadf4;">drwxr-xr-x</span>  <span style="color: #a6da95;">src/</span>
+          <br><span style="color: #8aadf4;">drwxr-xr-x</span>  <span style="color: #a6da95;">tests/</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Custom Title Bar (Themed)</h3>
+      <p>Extend client area into title bar. Render a custom title bar using Catppuccin Mantle color (<code>#1e2030</code>), with themed window buttons. Compact 32px height. Fully integrated look.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 0; overflow: hidden;">
+      <!-- Approach B: Mica/transparent title bar -->
+      <div style="background: #24273A; border-radius: 8px; overflow: hidden; font-family: 'Inter', system-ui, sans-serif;">
+        <!-- Title bar - slightly tinted system chrome -->
+        <div style="background: linear-gradient(to right, #24273aee, #24273add); height: 30px; display: flex; align-items: center; padding: 0 12px; gap: 8px; border-bottom: 1px solid #363a4f44;">
+          <span style="color: #cad3f5; font-size: 12px; font-weight: 500; opacity: 0.7;">Centaur</span>
+          <div style="flex: 1;"></div>
+          <div style="display: flex; gap: 0;">
+            <div style="width: 46px; height: 30px; display: flex; align-items: center; justify-content: center;">
+              <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="#cad3f5" opacity="0.5"/></svg>
+            </div>
+            <div style="width: 46px; height: 30px; display: flex; align-items: center; justify-content: center;">
+              <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="none" stroke="#cad3f5" stroke-width="1" opacity="0.5"/></svg>
+            </div>
+            <div style="width: 46px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 0 8px 0 0;">
+              <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10" stroke="#cad3f5" stroke-width="1.2" opacity="0.5"/><line x1="10" y1="0" x2="0" y2="10" stroke="#cad3f5" stroke-width="1.2" opacity="0.5"/></svg>
+            </div>
+          </div>
+        </div>
+        <!-- Terminal content -->
+        <div style="padding: 8px 12px; color: #cad3f5; font-family: monospace; font-size: 11px; height: 100px;">
+          <span style="color: #a6da95;">user@host</span><span style="color: #8aadf4;">:</span><span style="color: #8aadf4;">~/projects</span><span style="color: #cad3f5;">$ </span><span style="color: #cad3f5;">ls -la</span>
+          <br><span style="color: #6e738d;">total 42</span>
+          <br><span style="color: #8aadf4;">drwxr-xr-x</span>  <span style="color: #a6da95;">src/</span>
+          <br><span style="color: #8aadf4;">drwxr-xr-x</span>  <span style="color: #a6da95;">tests/</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Extended Client Area (Minimal)</h3>
+      <p>Extend client area but keep system window buttons. Background bleeds through to the title bar area with subtle separator. Minimal code, uses Avalonia's built-in <code>ExtendClientAreaToDecorationsHint</code>. ~30px height.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 0; overflow: hidden;">
+      <!-- Approach C: No title bar at all -->
+      <div style="background: #24273A; border-radius: 8px; overflow: hidden; font-family: 'Inter', system-ui, sans-serif;">
+        <!-- Terminal content - no title bar, just content -->
+        <div style="padding: 8px 12px; color: #cad3f5; font-family: monospace; font-size: 11px; height: 132px;">
+          <span style="color: #a6da95;">user@host</span><span style="color: #8aadf4;">:</span><span style="color: #8aadf4;">~/projects</span><span style="color: #cad3f5;">$ </span><span style="color: #cad3f5;">ls -la</span>
+          <br><span style="color: #6e738d;">total 42</span>
+          <br><span style="color: #8aadf4;">drwxr-xr-x</span>  <span style="color: #a6da95;">src/</span>
+          <br><span style="color: #8aadf4;">drwxr-xr-x</span>  <span style="color: #a6da95;">tests/</span>
+          <br><span style="color: #8aadf4;">-rw-r--r--</span>  <span style="color: #cad3f5;">README.md</span>
+          <br><span style="color: #a6da95;">user@host</span><span style="color: #8aadf4;">:</span><span style="color: #8aadf4;">~/projects</span><span style="color: #cad3f5;">$ </span><span style="color: #f5a97f; opacity: 0.7;">_</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Borderless (No Title Bar)</h3>
+      <p>Remove title bar entirely with <code>SystemDecorations="None"</code>. Maximum terminal space. Requires custom drag region and window controls overlay. Most immersive but needs more implementation work.</p>
+    </div>
+  </div>
+</div>
