@@ -22,7 +22,12 @@
       "Bash(gh repo:*)",
       "Bash(dotnet add:*)",
       "Bash(dotnet tool:*)",
-      "Bash(dotnet csharpier:*)"
+      "Bash(dotnet csharpier:*)",
+      "Bash(dotnet run:*)",
+      "Bash(dotnet clean:*)",
+      "Bash(tee /tmp/build2.log)",
+      "Bash(tee /tmp/build3.log)",
+      "Bash(tee /tmp/build4.log)"
     ]
   }
 }

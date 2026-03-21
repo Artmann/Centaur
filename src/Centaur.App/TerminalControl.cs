@@ -21,6 +21,7 @@ namespace Centaur.App;
 public class TerminalControl : Control
 {
     readonly ExtensionHost host;
+    readonly INotificationService notifications;
     readonly TerminalTheme theme;
     readonly ScreenBuffer buffer;
     readonly TerminalRenderer renderer;
@@ -46,6 +47,7 @@ public class TerminalControl : Control
     public TerminalControl()
     {
         host = App.Services.GetRequiredService<ExtensionHost>();
+        notifications = App.Services.GetRequiredService<INotificationService>();
 
         var themeProvider = host.GetProvider<IThemeProvider>();
         theme =
@@ -103,10 +105,7 @@ public class TerminalControl : Control
         }
         catch (Exception ex)
         {
-            // Write error to buffer for debugging
-            foreach (var c in $"PTY Error: {ex.Message}")
-                buffer.Write(c);
-            InvalidateVisual();
+            notifications.Show("PTY Error", ex.Message, NotificationSeverity.Error);
         }
     }
 
@@ -379,7 +378,10 @@ public class TerminalControl : Control
             await pty.Input.WriteAsync(data);
             await pty.Input.FlushAsync();
         }
-        catch (Exception) { }
+        catch (Exception ex)
+        {
+            notifications.Show("Input Error", ex.Message, NotificationSeverity.Error);
+        }
     }
 
     async void CopySelectionToClipboard()

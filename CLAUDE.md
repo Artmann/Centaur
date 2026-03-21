@@ -48,3 +48,12 @@ The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage compon
 - `TerminalControl` resolves the host via `App.Services.GetRequiredService<ExtensionHost>()`
 - `ActivateAsync` is called on attach, `DisposeAsync` on detach
 - Provider interfaces that need framework types (e.g., SkiaSharp) live in the project that owns those types (e.g., `IRenderOverlay` in Centaur.Rendering), not in Core
+
+## Error Handling
+
+- **Never swallow exceptions silently** — always show a toast notification to the user
+- Use `INotificationService.Show(title, message, severity)` to display errors as toast notifications
+- `INotificationService` is in `Centaur.Core.Hosting` (framework-agnostic), implemented by `NotificationServiceExtension` in Centaur.App using Avalonia's `WindowNotificationManager`
+- Resolve via DI: `App.Services.GetRequiredService<INotificationService>()`
+- Error messages must be **actionable** — tell the user what went wrong and what they can do about it
+- When planning features, always consider what errors can occur and include the exact error messages in the plan
