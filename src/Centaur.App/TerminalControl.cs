@@ -57,6 +57,11 @@ public class TerminalControl : Control
     ReverseSearchOverlay? reverseSearchOverlay;
     bool reverseSearchActive;
 
+    // Settings state
+    readonly Settings settings;
+    SettingsOverlay? settingsOverlay;
+    bool settingsActive;
+
     public TerminalControl()
     {
         host = App.Services.GetRequiredService<ExtensionHost>();
@@ -64,6 +69,7 @@ public class TerminalControl : Control
         suggestionState = App.Services.GetRequiredService<SuggestionState>();
         commandHistory = App.Services.GetRequiredService<CommandHistory>();
         reverseSearchState = App.Services.GetRequiredService<ReverseSearchState>();
+        settings = App.Services.GetRequiredService<Settings>();
 
         var themeProvider = host.GetProvider<IThemeProvider>();
         theme =
@@ -176,7 +182,23 @@ public class TerminalControl : Control
                 rows = parser.ActiveBuffer.rows;
             }
 
-            var options = new PtyOptions(executable: "powershell.exe", columns: cols, rows: rows);
+            var workingDirectory = settings.GetStartingDirectory();
+            if (workingDirectory != null && !Directory.Exists(workingDirectory))
+            {
+                notifications.Show(
+                    "Starting Directory",
+                    $"Directory \"{workingDirectory}\" not found. Using default instead.",
+                    NotificationSeverity.Warning
+                );
+                workingDirectory = null;
+            }
+
+            var options = new PtyOptions(
+                executable: "powershell.exe",
+                columns: cols,
+                rows: rows,
+                workingDirectory: workingDirectory
+            );
 
             pty = await ConPtyConnection.CreateAsync(options);
             readCts = new CancellationTokenSource();
@@ -415,7 +437,7 @@ public class TerminalControl : Control
     {
         base.OnKeyDown(e);
 
-        if (reverseSearchActive)
+        if (reverseSearchActive || settingsActive)
         {
             return;
         }
@@ -497,6 +519,13 @@ public class TerminalControl : Control
                 return;
             }
 
+            if (e.Key == Key.OemComma)
+            {
+                OpenSettings();
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key >= Key.A && e.Key <= Key.Z)
             {
                 // Ctrl+A = 0x01, Ctrl+C (no selection) = 0x03, etc.
@@ -513,6 +542,7 @@ public class TerminalControl : Control
                 if (!string.IsNullOrWhiteSpace(input))
                 {
                     host.Events.Publish(new CommandSubmittedEvent(input.Trim()));
+                    TrackDirectoryChange(input.Trim());
                 }
                 suggestionState.Clear();
                 awaitingPrompt = true;
@@ -683,6 +713,78 @@ public class TerminalControl : Control
         reverseSearchOverlay?.Hide();
         reverseSearchActive = false;
         Focus();
+    }
+
+    void OpenSettings()
+    {
+        if (settingsActive)
+        {
+            return;
+        }
+
+        settingsActive = true;
+
+        if (settingsOverlay == null)
+        {
+            settingsOverlay = new SettingsOverlay(settings);
+            settingsOverlay.CloseRequested += CloseSettings;
+
+            if (Parent is Panel panel)
+            {
+                panel.Children.Add(settingsOverlay);
+            }
+        }
+
+        settingsOverlay.Show(theme);
+        host.Events.Publish(new SettingsRequestedEvent());
+    }
+
+    void CloseSettings()
+    {
+        settingsOverlay?.Hide();
+        settingsActive = false;
+        Focus();
+    }
+
+    void TrackDirectoryChange(string command)
+    {
+        string? targetDir = null;
+
+        foreach (var prefix in new[] { "cd ", "Set-Location ", "pushd ", "chdir ", "sl " })
+        {
+            if (command.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                targetDir = command[prefix.Length..].Trim().Trim('"', '\'');
+                break;
+            }
+        }
+
+        if (targetDir == null)
+        {
+            return;
+        }
+
+        if (
+            targetDir == "~"
+            || targetDir.StartsWith("~/", StringComparison.Ordinal)
+            || targetDir.StartsWith("~\\", StringComparison.Ordinal)
+        )
+        {
+            targetDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                targetDir[1..].TrimStart('/', '\\')
+            );
+        }
+
+        if (!Path.IsPathRooted(targetDir) && !string.IsNullOrEmpty(settings.LastFolder))
+        {
+            targetDir = Path.GetFullPath(Path.Combine(settings.LastFolder, targetDir));
+        }
+
+        if (Directory.Exists(targetDir))
+        {
+            settings.UpdateLastFolder(targetDir);
+        }
     }
 
     async void SendToPty(byte[] data)

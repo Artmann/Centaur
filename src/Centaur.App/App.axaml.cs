@@ -22,6 +22,7 @@ public partial class App : Application
         var services = new ServiceCollection();
         ConfigureServices(services);
         Services = services.BuildServiceProvider();
+        Services.GetRequiredService<Settings>().Load();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -64,5 +65,16 @@ public partial class App : Application
         services.AddSingleton<ReverseSearchState>();
         services.AddSingleton<ReverseSearchExtension>();
         services.AddSingleton<IExtension>(sp => sp.GetRequiredService<ReverseSearchExtension>());
+
+        // Settings
+        services.AddSingleton(sp => new Settings(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Centaur",
+                "settings.json"
+            )
+        ));
+        services.AddSingleton<SettingsExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SettingsExtension>());
     }
 }

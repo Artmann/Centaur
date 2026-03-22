@@ -19,3 +19,5 @@ public record PtyExitedEvent(int ExitCode);
 public record CommandSubmittedEvent(string Command);
 
 public record ReverseSearchRequestedEvent;
+
+public record SettingsRequestedEvent;
