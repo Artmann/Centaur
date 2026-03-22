@@ -115,21 +115,21 @@ public class TerminalControl : Control
         }
     }
 
-    protected override async void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    public event Action? PtyExited;
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        await host.ActivateAsync();
         suggestionProvider = host.GetProvider<ISuggestionProvider>();
         isAttached = true;
         ScheduleFrame();
         // PTY start is deferred until ArrangeOverride provides the real size
     }
 
-    protected override async void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         isAttached = false;
         StopPty();
-        await host.DisposeAsync();
         renderer.Dispose();
         readCts?.Dispose();
         base.OnDetachedFromVisualTree(e);
@@ -231,8 +231,16 @@ public class TerminalControl : Control
                     break;
             }
         }
-        catch (OperationCanceledException) { }
-        catch (Exception) { }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception)
+        {
+            // Fall through to fire PtyExited
+        }
+
+        Dispatcher.UIThread.Post(() => PtyExited?.Invoke());
     }
 
     (int col, int row) PixelToGrid(Point p)

@@ -14,14 +14,8 @@
         <Panel x:Name="titleBarPanel" Height="28" VerticalAlignment="Top">
             <!-- Drag region -->
             <Border x:Name="titleBar" Background="Transparent" />
-            <!-- Centered title -->
-            <TextBlock Text="Centaur"
-                       FontSize="12"
-                       FontWeight="SemiBold"
-                       Foreground="#7F849C"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       IsHitTestVisible="False" />
+            <!-- Tab bar (replaces static title) -->
+            <local:TabBar x:Name="tabBar" Margin="0,0,138,0" />
             <!-- Caption buttons -->
             <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
                 <Button x:Name="minimizeButton" Classes="captionButton">
@@ -36,7 +30,7 @@
                 </Button>
             </StackPanel>
         </Panel>
-        <local:TerminalControl x:Name="terminal" />
+        <Panel x:Name="contentPanel" />
     </Panel>
 
     <Window.Styles>
