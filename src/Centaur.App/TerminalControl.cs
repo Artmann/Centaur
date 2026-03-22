@@ -32,6 +32,7 @@ public class TerminalControl : Control
     CancellationTokenSource? readCts;
     Task? readTask;
     bool isAttached;
+    bool ptyStarted;
 
     // Selection state (UI thread only)
     int selAnchorCol,
@@ -54,12 +55,57 @@ public class TerminalControl : Control
             themeProvider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
             ?? CatppuccinThemes.Macchiato;
 
-        buffer = new ScreenBuffer(80, 24, theme);
         renderer = new TerminalRenderer(theme);
+
+        // Start with a default size; will resize once we know actual bounds
+        buffer = new ScreenBuffer(80, 24, theme);
         parser = new VtParser(buffer, theme);
 
         Focusable = true;
         ClipToBounds = true;
+    }
+
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        var result = base.ArrangeOverride(finalSize);
+        UpdateGridSize(finalSize.Width, finalSize.Height);
+        return result;
+    }
+
+    void UpdateGridSize(double width, double height)
+    {
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var newCols = Math.Max(1, (int)(width / renderer.cellWidth));
+        var newRows = Math.Max(1, (int)(height / renderer.cellHeight));
+
+        if (newCols == buffer.columns && newRows == buffer.rows)
+        {
+            if (!ptyStarted && isAttached)
+            {
+                ptyStarted = true;
+                StartPty();
+            }
+            return;
+        }
+
+        lock (bufferLock)
+        {
+            parser.Resize(newCols, newRows);
+        }
+
+        if (!ptyStarted && isAttached)
+        {
+            ptyStarted = true;
+            StartPty();
+        }
+        else
+        {
+            pty?.Resize(newCols, newRows);
+        }
     }
 
     protected override async void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -68,7 +114,7 @@ public class TerminalControl : Control
         await host.ActivateAsync();
         isAttached = true;
         ScheduleFrame();
-        StartPty();
+        // PTY start is deferred until ArrangeOverride provides the real size
     }
 
     protected override async void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -106,11 +152,15 @@ public class TerminalControl : Control
     {
         try
         {
-            var options = new PtyOptions(
-                executable: "powershell.exe",
-                columns: buffer.columns,
-                rows: buffer.rows
-            );
+            int cols,
+                rows;
+            lock (bufferLock)
+            {
+                cols = buffer.columns;
+                rows = buffer.rows;
+            }
+
+            var options = new PtyOptions(executable: "powershell.exe", columns: cols, rows: rows);
 
             pty = await ConPtyConnection.CreateAsync(options);
             readCts = new CancellationTokenSource();
@@ -312,12 +362,27 @@ public class TerminalControl : Control
 
         byte[]? bytes = null;
 
+        // Shift+Insert paste
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.Insert)
+        {
+            PasteFromClipboard();
+            e.Handled = true;
+            return;
+        }
+
         // Handle Ctrl+key combinations
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             if (e.Key == Key.C && hasSelection)
             {
                 CopySelectionToClipboard();
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.V)
+            {
+                PasteFromClipboard();
                 e.Handled = true;
                 return;
             }
@@ -397,6 +462,28 @@ public class TerminalControl : Control
         }
     }
 
+    // TODO: wrap paste in bracketed paste sequences when parser.bracketedPasteMode is true
+    async void PasteFromClipboard()
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null)
+        {
+            return;
+        }
+
+        var text = await clipboard.GetTextAsync();
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        // Normalize line endings to \r for the terminal
+        text = text.Replace("\r\n", "\r").Replace("\n", "\r");
+
+        var bytes = Encoding.UTF8.GetBytes(text);
+        SendToPty(bytes);
+    }
+
     async void CopySelectionToClipboard()
     {
         var sel = TextSelection.Normalize(selAnchorCol, selAnchorRow, selCurrentCol, selCurrentRow);
@@ -438,7 +525,8 @@ public class TerminalControl : Control
                 snapshot,
                 renderer,
                 GetNormalizedSelection(),
-                overlays
+                overlays,
+                cursorVisible: true
             )
         );
     }
@@ -450,13 +538,15 @@ public class TerminalControl : Control
         readonly TerminalRenderer renderer;
         readonly TextSelection? selection;
         readonly IReadOnlyList<IRenderOverlay> overlays;
+        readonly bool cursorVisible;
 
         public TerminalDrawOperation(
             Rect bounds,
             ScreenBuffer snapshot,
             TerminalRenderer renderer,
             TextSelection? selection,
-            IReadOnlyList<IRenderOverlay> overlays
+            IReadOnlyList<IRenderOverlay> overlays,
+            bool cursorVisible = true
         )
         {
             this.bounds = bounds;
@@ -464,6 +554,7 @@ public class TerminalControl : Control
             this.renderer = renderer;
             this.selection = selection;
             this.overlays = overlays;
+            this.cursorVisible = cursorVisible;
         }
 
         public Rect Bounds => bounds;
@@ -485,7 +576,14 @@ public class TerminalControl : Control
             using var lease = leaseFeature.Lease();
             var canvas = lease.SkCanvas;
 
-            renderer.Render(canvas, snapshot, (float)bounds.Width, selection, overlays);
+            renderer.Render(
+                canvas,
+                snapshot,
+                (float)bounds.Width,
+                selection,
+                overlays,
+                cursorVisible
+            );
         }
     }
 }

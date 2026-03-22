@@ -9,6 +9,7 @@ namespace Centaur.App;
 public partial class MainWindow : Window
 {
     const int horizontalPadding = 8;
+    const int bottomPadding = 8;
     const int titleBarHeight = 28;
 
     public MainWindow()
@@ -74,7 +75,7 @@ public partial class MainWindow : Window
             horizontalPadding + offScreen.Left,
             top + offScreen.Top,
             horizontalPadding + offScreen.Right,
-            offScreen.Bottom
+            bottomPadding + offScreen.Bottom
         );
     }
 }

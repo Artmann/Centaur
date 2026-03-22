@@ -2,10 +2,26 @@ namespace Centaur.Core.Terminal;
 
 public class VtParser
 {
-    readonly ScreenBuffer buffer;
+    readonly ScreenBuffer mainBuffer;
+    readonly ScreenBuffer alternateBuffer;
+    ScreenBuffer buffer;
     readonly TerminalTheme theme;
     uint currentFg;
     uint currentBg;
+
+    // DEC Private Mode state
+    bool isPrivateMode;
+    public bool CursorVisible { get; private set; } = true;
+    public bool ApplicationCursorKeys { get; private set; }
+    public bool BracketedPasteMode { get; private set; }
+    public bool IsAlternateScreen { get; private set; }
+    public ScreenBuffer ActiveBuffer => buffer;
+
+    // Saved cursor state (DECSC/DECRC)
+    int savedCursorX;
+    int savedCursorY;
+    uint savedFg;
+    uint savedBg;
 
     enum State
     {
@@ -31,10 +47,18 @@ public class VtParser
 
     public VtParser(ScreenBuffer buffer, TerminalTheme theme)
     {
+        this.mainBuffer = buffer;
+        this.alternateBuffer = new ScreenBuffer(buffer.columns, buffer.rows, theme);
         this.buffer = buffer;
         this.theme = theme;
         currentFg = theme.Foreground;
         currentBg = theme.Background;
+    }
+
+    public void Resize(int columns, int rows)
+    {
+        mainBuffer.Resize(columns, rows);
+        alternateBuffer.Resize(columns, rows);
     }
 
     public void Process(ReadOnlySpan<byte> data)
@@ -148,6 +172,7 @@ public class VtParser
                 state = State.Csi;
                 csiParams.Clear();
                 currentParam = 0;
+                isPrivateMode = false;
                 break;
             case (byte)'D': // IND - Index (move down)
                 LineFeed();
@@ -159,13 +184,13 @@ public class VtParser
                 state = State.Ground;
                 break;
             case (byte)'M': // RI - Reverse Index (move up)
-                if (buffer.cursorY > 0)
+                if (buffer.cursorY == buffer.scrollTop)
+                {
+                    buffer.ScrollDownInRegion(1, buffer.scrollTop, buffer.scrollBottom);
+                }
+                else if (buffer.cursorY > 0)
                 {
                     buffer.cursorY--;
-                }
-                else
-                {
-                    buffer.ScrollDown(1);
                 }
                 state = State.Ground;
                 break;
@@ -173,8 +198,17 @@ public class VtParser
                 state = State.Osc;
                 break;
             case (byte)'7': // DECSC - Save cursor
+                savedCursorX = buffer.cursorX;
+                savedCursorY = buffer.cursorY;
+                savedFg = currentFg;
+                savedBg = currentBg;
+                state = State.Ground;
+                break;
             case (byte)'8': // DECRC - Restore cursor
-                // TODO: implement cursor save/restore
+                buffer.cursorX = savedCursorX;
+                buffer.cursorY = savedCursorY;
+                currentFg = savedFg;
+                currentBg = savedBg;
                 state = State.Ground;
                 break;
             default:
@@ -206,7 +240,7 @@ public class VtParser
         }
         else if (b == '?')
         {
-            // Private mode indicator, ignore for now
+            isPrivateMode = true;
             state = State.CsiParam;
         }
         else
@@ -266,6 +300,12 @@ public class VtParser
             case 'P': // DCH - Delete Characters
                 DeleteCharacters(Param(0));
                 break;
+            case '@': // ICH - Insert Characters
+                InsertCharacters(Param(0));
+                break;
+            case 'X': // ECH - Erase Characters
+                EraseCharacters(Param(0));
+                break;
             case 'S': // SU - Scroll Up
                 buffer.ScrollUp(Param(0));
                 break;
@@ -280,11 +320,76 @@ public class VtParser
                 break;
             case 'h': // SM - Set Mode
             case 'l': // RM - Reset Mode
-                // TODO: handle modes (e.g., ?25h for cursor visibility)
+                if (isPrivateMode)
+                {
+                    ExecuteDecMode(command);
+                }
+                break;
+            case 's': // SCP - Save Cursor Position (ANSI)
+                savedCursorX = buffer.cursorX;
+                savedCursorY = buffer.cursorY;
+                savedFg = currentFg;
+                savedBg = currentBg;
+                break;
+            case 'u': // RCP - Restore Cursor Position (ANSI)
+                buffer.cursorX = savedCursorX;
+                buffer.cursorY = savedCursorY;
+                currentFg = savedFg;
+                currentBg = savedBg;
                 break;
             case 'r': // DECSTBM - Set Top and Bottom Margins
-                // TODO: implement scroll region
+            {
+                var top = Param(0) - 1; // Convert 1-based to 0-based
+                var bottom = Param(1, buffer.rows) - 1;
+                buffer.SetScrollRegion(top, bottom);
+                buffer.cursorX = 0;
+                buffer.cursorY = 0;
                 break;
+            }
+        }
+    }
+
+    void ExecuteDecMode(char command)
+    {
+        var enabled = command == 'h';
+        for (int i = 0; i < csiParams.Count; i++)
+        {
+            switch (csiParams[i])
+            {
+                case 1: // DECCKM - Application Cursor Keys
+                    ApplicationCursorKeys = enabled;
+                    break;
+                case 25: // DECTCEM - Cursor Visibility
+                    CursorVisible = enabled;
+                    break;
+                case 2004: // Bracketed Paste Mode
+                    BracketedPasteMode = enabled;
+                    break;
+                case 1049: // Alternate Screen Buffer
+                    if (enabled)
+                    {
+                        // Save cursor, switch to alternate, clear
+                        savedCursorX = buffer.cursorX;
+                        savedCursorY = buffer.cursorY;
+                        savedFg = currentFg;
+                        savedBg = currentBg;
+                        buffer = alternateBuffer;
+                        buffer.Clear();
+                        buffer.SetScrollRegion(0, buffer.rows - 1);
+                        IsAlternateScreen = true;
+                    }
+                    else
+                    {
+                        // Switch back to main, restore cursor
+                        buffer = mainBuffer;
+                        buffer.cursorX = savedCursorX;
+                        buffer.cursorY = savedCursorY;
+                        currentFg = savedFg;
+                        currentBg = savedBg;
+                        IsAlternateScreen = false;
+                    }
+                    break;
+            }
         }
     }
 
@@ -329,13 +434,13 @@ public class VtParser
 
     void LineFeed()
     {
-        if (buffer.cursorY < buffer.rows - 1)
+        if (buffer.cursorY == buffer.scrollBottom)
+        {
+            buffer.ScrollUpInRegion(1, buffer.scrollTop, buffer.scrollBottom);
+        }
+        else if (buffer.cursorY < buffer.rows - 1)
         {
             buffer.cursorY++;
-        }
-        else
-        {
-            buffer.ScrollUp(1);
         }
     }
 
@@ -363,9 +468,11 @@ public class VtParser
                 }
                 EraseInLine(1);
                 break;
-            case 2: // Erase entire screen
+            case 2: // Erase entire screen (preserve cursor)
+                buffer.ClearCells();
+                break;
             case 3: // Erase entire screen and scrollback
-                buffer.Clear();
+                buffer.ClearCells();
                 break;
         }
     }
@@ -442,6 +549,29 @@ public class VtParser
                 buffer[x, buffer.cursorY] = buffer[x + 1, buffer.cursorY];
             }
             buffer[buffer.columns - 1, buffer.cursorY] = DefaultCell();
+        }
+    }
+
+    void InsertCharacters(int count)
+    {
+        // Shift characters right from cursor position
+        for (int x = buffer.columns - 1; x >= buffer.cursorX + count; x--)
+        {
+            buffer[x, buffer.cursorY] = buffer[x - count, buffer.cursorY];
+        }
+        // Clear inserted positions
+        for (int x = buffer.cursorX; x < Math.Min(buffer.cursorX + count, buffer.columns); x++)
+        {
+            buffer[x, buffer.cursorY] = DefaultCell();
+        }
+    }
+
+    void EraseCharacters(int count)
+    {
+        // Erase characters at cursor position (doesn't shift)
+        for (int x = buffer.cursorX; x < Math.Min(buffer.cursorX + count, buffer.columns); x++)
+        {
+            buffer[x, buffer.cursorY] = DefaultCell();
         }
     }
 

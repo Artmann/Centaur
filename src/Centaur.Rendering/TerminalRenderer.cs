@@ -10,6 +10,7 @@ public class TerminalRenderer : IDisposable
     internal readonly SKFont font;
     readonly SKPaint textPaint;
     readonly SKPaint backgroundPaint;
+    readonly SKPaint cursorPaint;
     readonly SKTextBlobBuilder blobBuilder = new();
     readonly TerminalTheme theme;
     readonly float textYOffset;
@@ -37,6 +38,8 @@ public class TerminalRenderer : IDisposable
 
         backgroundPaint = new SKPaint { Color = new SKColor(theme.Background) };
 
+        cursorPaint = new SKPaint { Color = new SKColor(theme.Cursor) };
+
         cellWidth = font.MeasureText("M");
         cellHeight = fontSize * 1.2f;
         textYOffset = cellHeight - (cellHeight - font.Size) / 2;
@@ -47,7 +50,8 @@ public class TerminalRenderer : IDisposable
         ScreenBuffer buffer,
         float canvasWidth,
         TextSelection? selection = null,
-        IReadOnlyList<IRenderOverlay>? overlays = null
+        IReadOnlyList<IRenderOverlay>? overlays = null,
+        bool cursorVisible = true
     )
     {
         canvas.Clear(new SKColor(theme.Background));
@@ -113,6 +117,44 @@ public class TerminalRenderer : IDisposable
         if (count > 0)
         {
             DrawGlyphsByColor(canvas, count);
+        }
+
+        // Draw cursor
+        if (
+            cursorVisible
+            && buffer.cursorX >= 0
+            && buffer.cursorX < buffer.columns
+            && buffer.cursorY >= 0
+            && buffer.cursorY < buffer.rows
+        )
+        {
+            cursorPaint.Color = new SKColor(theme.Cursor);
+            canvas.DrawRect(
+                buffer.cursorX * cellWidth,
+                buffer.cursorY * cellHeight,
+                cellWidth,
+                cellHeight,
+                cursorPaint
+            );
+
+            // Re-draw character under cursor with inverted color so it's visible
+            var cursorCell = buffer[buffer.cursorX, buffer.cursorY];
+            if (cursorCell.character > ' ')
+            {
+                var glyph = font.GetGlyph(cursorCell.character);
+                var pos = new SKPoint(
+                    buffer.cursorX * cellWidth,
+                    buffer.cursorY * cellHeight + textYOffset
+                );
+                runGlyphBuf[0] = glyph;
+                runPosBuf[0] = pos;
+                using var blob = BuildBlob(runGlyphBuf, runPosBuf, 1);
+                if (blob != null)
+                {
+                    textPaint.Color = new SKColor(theme.Background);
+                    canvas.DrawText(blob, 0, 0, textPaint);
+                }
+            }
         }
 
         if (overlays != null)
@@ -203,6 +245,7 @@ public class TerminalRenderer : IDisposable
         blobBuilder.Dispose();
         textPaint.Dispose();
         backgroundPaint.Dispose();
+        cursorPaint.Dispose();
         font.Dispose();
         typeface.Dispose();
     }
