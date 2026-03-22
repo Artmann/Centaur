@@ -18,20 +18,42 @@ public class TabBar : Control
 
     readonly DockPanel container;
     readonly StackPanel tabsPanel;
+    readonly Panel tabsOverlay;
     readonly ScrollViewer scrollViewer;
 
     public event Action<int>? TabSelected;
     public event Action? NewTabRequested;
     public event Action<int>? TabClosed;
     public event Action<int, string>? TabRenamed;
+    public event Action<int, int>? TabMoved;
+
+    int draggingTabId = -1;
+    Point dragStartPoint;
+    bool isDragging;
+    const double dragThreshold = 5;
+
+    readonly Border dropIndicator = new()
+    {
+        Width = 2,
+        Height = 20,
+        Background = SolidColorBrush.Parse("#8AADF4"),
+        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalAlignment = HorizontalAlignment.Left,
+        IsVisible = false,
+        IsHitTestVisible = false,
+    };
 
     public TabBar()
     {
         tabsPanel = new StackPanel { Orientation = Orientation.Horizontal };
 
+        tabsOverlay = new Panel();
+        tabsOverlay.Children.Add(tabsPanel);
+        tabsOverlay.Children.Add(dropIndicator);
+
         scrollViewer = new ScrollViewer
         {
-            Content = tabsPanel,
+            Content = tabsOverlay,
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden,
             VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
         };
@@ -201,8 +223,60 @@ public class TabBar : Control
             if (e.GetCurrentPoint(panel).Properties.IsLeftButtonPressed)
             {
                 TabSelected?.Invoke(tabId);
+                draggingTabId = tabId;
+                dragStartPoint = e.GetPosition(tabsPanel);
+                isDragging = false;
+                e.Pointer.Capture(panel);
                 e.Handled = true;
             }
+        };
+
+        panel.PointerMoved += (_, e) =>
+        {
+            if (draggingTabId != tabId || e.Pointer.Captured != panel)
+            {
+                return;
+            }
+
+            var currentPos = e.GetPosition(tabsPanel);
+            var delta = currentPos - dragStartPoint;
+
+            if (!isDragging && Math.Abs(delta.X) > dragThreshold)
+            {
+                isDragging = true;
+            }
+
+            if (isDragging)
+            {
+                panel.RenderTransform = new TranslateTransform(delta.X, 0);
+                panel.Opacity = 0.7;
+                panel.ZIndex = 100;
+                UpdateDropIndicator(currentPos.X, panel);
+            }
+        };
+
+        panel.PointerReleased += (_, e) =>
+        {
+            if (draggingTabId != tabId)
+            {
+                return;
+            }
+
+            e.Pointer.Capture(null);
+
+            if (isDragging)
+            {
+                var dropPos = e.GetPosition(tabsPanel).X;
+                var newIndex = CalculateDropIndex(dropPos, panel);
+                panel.RenderTransform = null;
+                panel.Opacity = 1;
+                panel.ZIndex = 0;
+                dropIndicator.IsVisible = false;
+                TabMoved?.Invoke(tabId, newIndex);
+            }
+
+            draggingTabId = -1;
+            isDragging = false;
         };
 
         closeButton.PointerEntered += (_, _) =>
@@ -223,6 +297,86 @@ public class TabBar : Control
         };
 
         return panel;
+    }
+
+    int CalculateDropIndex(double pointerX, Panel draggedPanel)
+    {
+        for (var i = 0; i < tabsPanel.Children.Count; i++)
+        {
+            var child = tabsPanel.Children[i];
+            if (child == draggedPanel)
+            {
+                continue;
+            }
+
+            var bounds = child.Bounds;
+            var midpoint = bounds.X + bounds.Width / 2;
+            if (pointerX < midpoint)
+            {
+                return i;
+            }
+        }
+
+        return tabsPanel.Children.Count - 1;
+    }
+
+    void UpdateDropIndicator(double pointerX, Panel draggedPanel)
+    {
+        double indicatorX;
+        var dropIndex = CalculateDropIndex(pointerX, draggedPanel);
+        var draggedIndex = tabsPanel.Children.IndexOf(draggedPanel);
+
+        // Don't show indicator at the dragged tab's own position
+        if (dropIndex == draggedIndex)
+        {
+            dropIndicator.IsVisible = false;
+            return;
+        }
+
+        if (dropIndex <= 0)
+        {
+            indicatorX = 0;
+        }
+        else
+        {
+            // Find the non-dragged child at the drop boundary
+            var insertBefore = -1;
+            var seen = 0;
+            for (var i = 0; i < tabsPanel.Children.Count; i++)
+            {
+                if (tabsPanel.Children[i] == draggedPanel)
+                {
+                    continue;
+                }
+
+                if (seen == dropIndex)
+                {
+                    insertBefore = i;
+                    break;
+                }
+
+                seen++;
+            }
+
+            if (insertBefore >= 0)
+            {
+                indicatorX = tabsPanel.Children[insertBefore].Bounds.X;
+            }
+            else
+            {
+                // Dropping at the end
+                var lastChild = tabsPanel.Children[^1];
+                if (lastChild == draggedPanel && tabsPanel.Children.Count > 1)
+                {
+                    lastChild = tabsPanel.Children[^2];
+                }
+
+                indicatorX = lastChild.Bounds.Right;
+            }
+        }
+
+        dropIndicator.RenderTransform = new TranslateTransform(indicatorX - 1, 0);
+        dropIndicator.IsVisible = true;
     }
 
     Button CreateAddButton()
