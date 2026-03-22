@@ -15,6 +15,7 @@ public class CommandHistoryTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         if (Directory.Exists(tempDir))
         {
             Directory.Delete(tempDir, true);
