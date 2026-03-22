@@ -1,0 +1,61 @@
+<h2>Reverse Search Layout</h2>
+<p class="subtitle">Ctrl+R opens this full-screen overlay on top of the terminal</p>
+
+<div class="mockup" style="max-width: 800px; margin: 2rem auto;">
+  <div class="mockup-header">Terminal Window — Reverse Search Active</div>
+  <div class="mockup-body" style="background: #1e1e2e; color: #cdd6f4; font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 13px; padding: 0; min-height: 420px; display: flex; flex-direction: column;">
+
+    <!-- Results list (fills main area, most recent at bottom) -->
+    <div style="flex: 1; padding: 8px 12px; overflow-y: auto; display: flex; flex-direction: column; justify-content: flex-end;">
+
+      <div style="padding: 6px 12px; border-radius: 4px; color: #6c7086; margin-bottom: 2px;">
+        npm run build --production
+      </div>
+      <div style="padding: 6px 12px; border-radius: 4px; color: #6c7086; margin-bottom: 2px;">
+        docker compose up -d
+      </div>
+      <div style="padding: 6px 12px; border-radius: 4px; color: #6c7086; margin-bottom: 2px;">
+        git log --oneline -20
+      </div>
+      <div style="padding: 6px 12px; border-radius: 4px; color: #6c7086; margin-bottom: 2px;">
+        dotnet test --filter "CommandHistory"
+      </div>
+      <div style="padding: 6px 12px; border-radius: 4px; color: #6c7086; margin-bottom: 2px;">
+        <span style="color: #cdd6f4; font-weight: bold;">git</span> stash pop
+      </div>
+      <div style="padding: 6px 12px; border-radius: 4px; color: #6c7086; margin-bottom: 2px;">
+        <span style="color: #cdd6f4; font-weight: bold;">git</span> cherry-pick abc123
+      </div>
+      <div style="padding: 6px 12px; border-radius: 4px; color: #6c7086; margin-bottom: 2px;">
+        <span style="color: #cdd6f4; font-weight: bold;">git</span> push ori<span style="color: #cdd6f4; font-weight: bold;">g</span>in main
+      </div>
+      <!-- Selected item highlighted -->
+      <div style="padding: 6px 12px; border-radius: 4px; background: #313244; color: #cdd6f4; margin-bottom: 2px; border-left: 3px solid #89b4fa;">
+        <span style="color: #89b4fa; font-weight: bold;">g</span>it commit -m "fix bu<span style="color: #89b4fa; font-weight: bold;">g</span>"
+      </div>
+    </div>
+
+    <!-- Separator -->
+    <div style="height: 1px; background: #313244;"></div>
+
+    <!-- Search input bar at bottom -->
+    <div style="padding: 10px 12px; display: flex; align-items: center; gap: 8px; background: #181825;">
+      <span style="color: #89b4fa; font-weight: bold; white-space: nowrap;">❯</span>
+      <span style="color: #cdd6f4;">gg</span><span style="border-left: 2px solid #89b4fa; animation: blink 1s step-end infinite;">&nbsp;</span>
+      <span style="margin-left: auto; color: #6c7086; font-size: 11px;">8 / 142</span>
+    </div>
+  </div>
+</div>
+
+<div style="max-width: 800px; margin: 1.5rem auto;">
+  <h3>Key behaviors</h3>
+  <ul style="line-height: 1.8;">
+    <li><strong>Ctrl+R</strong> — Opens overlay, focus goes to search input</li>
+    <li><strong>Type to filter</strong> — Fuzzy matches highlighted in <span style="color: #89b4fa; font-weight: bold;">accent color + bold</span></li>
+    <li><strong>Up/Down arrows</strong> — Navigate the results list</li>
+    <li><strong>Enter</strong> — Execute the selected command immediately</li>
+    <li><strong>Escape</strong> — Close overlay, return to terminal</li>
+    <li><strong>Results anchored to bottom</strong> — Most recent commands closest to the input bar (like fzf)</li>
+    <li><strong>Match counter</strong> — Shows "matched / total" in bottom-right</li>
+  </ul>
+</div>

@@ -42,7 +42,10 @@
       "Read(//c/Users/Artga/.nuget/packages/avalonia/**)",
       "Bash(xargs grep:*)",
       "Bash(ls -la /c/Users/Artga/Code/Centaur/tests/Centaur.Tests/*.cs)",
-      "Bash(grep -r \"class.*Test\" /c/Users/Artga/Code/Centaur/tests/Centaur.Tests/*.cs)"
+      "Bash(grep -r \"class.*Test\" /c/Users/Artga/Code/Centaur/tests/Centaur.Tests/*.cs)",
+      "Bash(bash \"C:\\\\Users\\\\Artga\\\\.claude\\\\plugins\\\\cache\\\\claude-plugins-official\\\\superpowers\\\\5.0.5\\\\scripts\\\\start-server.sh\" --project-dir \"C:\\\\Users\\\\Artga\\\\Code\\\\Centaur\")",
+      "Bash(bash \"C:/Users/Artga/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/scripts/start-server.sh\" --project-dir \"C:/Users/Artga/Code/Centaur\")",
+      "Bash(bash \"C:/Users/Artga/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/skills/brainstorming/scripts/start-server.sh\" --project-dir \"C:/Users/Artga/Code/Centaur\")"
     ]
   }
 }
