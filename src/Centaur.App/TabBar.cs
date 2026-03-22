@@ -16,7 +16,9 @@ public class TabBar : Control
     static readonly IBrush closeBg = SolidColorBrush.Parse("#494D64");
     static readonly IBrush closeHoverBg = SolidColorBrush.Parse("#ED8796");
 
-    readonly StackPanel container;
+    readonly DockPanel container;
+    readonly StackPanel tabsPanel;
+    readonly ScrollViewer scrollViewer;
 
     public event Action<int>? TabSelected;
     public event Action? NewTabRequested;
@@ -24,24 +26,44 @@ public class TabBar : Control
 
     public TabBar()
     {
-        container = new StackPanel { Orientation = Orientation.Horizontal };
+        tabsPanel = new StackPanel { Orientation = Orientation.Horizontal };
+
+        scrollViewer = new ScrollViewer
+        {
+            Content = tabsPanel,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+        };
+
+        scrollViewer.PointerWheelChanged += (_, e) =>
+        {
+            scrollViewer.Offset = new Vector(scrollViewer.Offset.X - e.Delta.Y * 50, 0);
+            e.Handled = true;
+        };
+
+        var addButton = CreateAddButton();
+        DockPanel.SetDock(addButton, Dock.Right);
+
+        container = new DockPanel { LastChildFill = true };
+        container.Children.Add(addButton);
+        container.Children.Add(scrollViewer);
+
         VisualChildren.Add(container);
         LogicalChildren.Add(container);
     }
 
     public void Update(IReadOnlyList<TabItem> tabs, int activeId)
     {
-        container.Children.Clear();
+        IsVisible = tabs.Count > 1;
+
+        tabsPanel.Children.Clear();
 
         foreach (var tab in tabs)
         {
             var isActive = tab.Id == activeId;
             var tabButton = CreateTabButton(tab, isActive);
-            container.Children.Add(tabButton);
+            tabsPanel.Children.Add(tabButton);
         }
-
-        var addButton = CreateAddButton();
-        container.Children.Add(addButton);
     }
 
     Panel CreateTabButton(TabItem tab, bool isActive)
@@ -165,7 +187,7 @@ public class TabBar : Control
     protected override Size MeasureOverride(Size availableSize)
     {
         container.Measure(availableSize);
-        return container.DesiredSize;
+        return new Size(availableSize.Width, container.DesiredSize.Height);
     }
 
     protected override Size ArrangeOverride(Size finalSize)
