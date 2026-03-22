@@ -43,5 +43,10 @@ public partial class App : Application
         services.AddSingleton<INotificationService>(sp =>
             sp.GetRequiredService<NotificationServiceExtension>()
         );
+        services.AddSingleton<SuggestionState>();
+        services.AddSingleton<SuggestionExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SuggestionExtension>());
+        services.AddSingleton<SuggestionOverlay>();
+        services.AddSingleton<IProvider>(sp => sp.GetRequiredService<SuggestionOverlay>());
     }
 }

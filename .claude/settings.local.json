@@ -39,7 +39,10 @@
       "Bash(powershell.exe -NoProfile -Command \"\\(Get-Content 'C:\\\\Users\\\\Artga\\\\.claude\\\\settings.json' -Raw | ConvertFrom-Json\\).hooks.Notification[0].hooks[0].command; \\(Get-Content 'C:\\\\Users\\\\Artga\\\\.claude\\\\settings.json' -Raw | ConvertFrom-Json\\).hooks.Stop[0].hooks[0].command\")",
       "WebFetch(domain:github.com)",
       "Bash(grep -r PointerWheel --include=*.cs -l)",
-      "Read(//c/Users/Artga/.nuget/packages/avalonia/**)"
+      "Read(//c/Users/Artga/.nuget/packages/avalonia/**)",
+      "Bash(xargs grep:*)",
+      "Bash(ls -la /c/Users/Artga/Code/Centaur/tests/Centaur.Tests/*.cs)",
+      "Bash(grep -r \"class.*Test\" /c/Users/Artga/Code/Centaur/tests/Centaur.Tests/*.cs)"
     ]
   }
 }

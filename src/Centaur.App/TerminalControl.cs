@@ -34,6 +34,12 @@ public class TerminalControl : Control
     bool isAttached;
     bool ptyStarted;
 
+    // Suggestion state
+    readonly SuggestionState suggestionState;
+    ISuggestionProvider? suggestionProvider;
+    int promptEndCol;
+    bool awaitingPrompt = true;
+
     // Selection state (UI thread only)
     int selAnchorCol,
         selAnchorRow;
@@ -49,6 +55,7 @@ public class TerminalControl : Control
     {
         host = App.Services.GetRequiredService<ExtensionHost>();
         notifications = App.Services.GetRequiredService<INotificationService>();
+        suggestionState = App.Services.GetRequiredService<SuggestionState>();
 
         var themeProvider = host.GetProvider<IThemeProvider>();
         theme =
@@ -112,6 +119,7 @@ public class TerminalControl : Control
     {
         base.OnAttachedToVisualTree(e);
         await host.ActivateAsync();
+        suggestionProvider = host.GetProvider<ISuggestionProvider>();
         isAttached = true;
         ScheduleFrame();
         // PTY start is deferred until ArrangeOverride provides the real size
@@ -209,6 +217,11 @@ public class TerminalControl : Control
                     foreach (var segment in ptyBuffer)
                     {
                         parser.Process(segment.Span);
+                    }
+
+                    if (awaitingPrompt)
+                    {
+                        promptEndCol = parser.ActiveBuffer.cursorX;
                     }
                 }
 
@@ -426,6 +439,19 @@ public class TerminalControl : Control
             return;
         }
 
+        // Accept suggestion with Tab (no modifiers)
+        if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.None)
+        {
+            var (ghost, _, _) = suggestionState.Read();
+            if (!string.IsNullOrEmpty(ghost))
+            {
+                SendToPty(Encoding.UTF8.GetBytes(ghost));
+                suggestionState.Clear();
+                e.Handled = true;
+                return;
+            }
+        }
+
         // Handle Ctrl+key combinations
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
@@ -447,10 +473,39 @@ public class TerminalControl : Control
             {
                 // Ctrl+A = 0x01, Ctrl+C (no selection) = 0x03, etc.
                 bytes = new byte[] { (byte)(e.Key - Key.A + 1) };
+                suggestionState.Clear();
             }
         }
         else
         {
+            // Capture command on Enter before sending to PTY
+            if (e.Key == Key.Enter)
+            {
+                var input = ExtractUserInput();
+                if (!string.IsNullOrWhiteSpace(input))
+                {
+                    host.Events.Publish(new CommandSubmittedEvent(input.Trim()));
+                }
+                suggestionState.Clear();
+                awaitingPrompt = true;
+            }
+
+            // Clear suggestion on navigation/editing keys
+            if (
+                e.Key
+                is Key.Up
+                    or Key.Down
+                    or Key.Escape
+                    or Key.Back
+                    or Key.Delete
+                    or Key.Left
+                    or Key.Home
+                    or Key.End
+            )
+            {
+                suggestionState.Clear();
+            }
+
             bytes = e.Key switch
             {
                 Key.Enter => "\r"u8.ToArray(),
@@ -495,11 +550,74 @@ public class TerminalControl : Control
         base.OnTextInput(e);
 
         if (pty == null || string.IsNullOrEmpty(e.Text))
+        {
             return;
+        }
 
+        awaitingPrompt = false;
         var bytes = Encoding.UTF8.GetBytes(e.Text);
         SendToPty(bytes);
+        UpdateSuggestion(e.Text);
         e.Handled = true;
+    }
+
+    string ExtractUserInput()
+    {
+        lock (bufferLock)
+        {
+            var buf = parser.ActiveBuffer;
+            var length = buf.cursorX - promptEndCol;
+            if (length <= 0)
+            {
+                return string.Empty;
+            }
+
+            var row = buf.GetRow(buf.cursorY);
+            var chars = new char[length];
+            for (int i = 0; i < length; i++)
+            {
+                chars[i] = row[promptEndCol + i].character;
+            }
+            return new string(chars).TrimEnd();
+        }
+    }
+
+    void UpdateSuggestion(string? appendedText = null)
+    {
+        if (suggestionProvider == null || parser.IsAlternateScreen || awaitingPrompt)
+        {
+            suggestionState.Clear();
+            return;
+        }
+
+        var input = ExtractUserInput();
+        if (appendedText != null)
+        {
+            input += appendedText;
+        }
+
+        var match = suggestionProvider.GetSuggestion(input);
+        if (match != null && match.Length > input.Length)
+        {
+            var ghost = match.Substring(input.Length);
+            int col;
+            int row;
+            lock (bufferLock)
+            {
+                col = parser.ActiveBuffer.cursorX;
+                row = parser.ActiveBuffer.cursorY;
+            }
+            // Offset by the appended text length since the echo hasn't arrived yet
+            if (appendedText != null)
+            {
+                col += appendedText.Length;
+            }
+            suggestionState.Update(ghost, col, row);
+        }
+        else
+        {
+            suggestionState.Clear();
+        }
     }
 
     async void SendToPty(byte[] data)

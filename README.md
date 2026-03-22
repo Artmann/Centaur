@@ -25,7 +25,20 @@ Centaur is a modern terminal emulator built for speed. It uses GPU-accelerated r
 
 **Beautiful defaults** — Ships with JetBrains Mono and the Catppuccin color theme. Looks great without any configuration.
 
+**Command suggestions** — Fish-style inline ghost text suggests commands from your history as you type. Press Tab to accept.
+
 **Dynamic resize** — The terminal adapts seamlessly when you resize the window.
+
+## Hotkeys
+
+| Key | Action |
+|-----|--------|
+| Tab | Accept command suggestion |
+| Ctrl+C | Copy selection (or send interrupt if no selection) |
+| Ctrl+V | Paste from clipboard |
+| Shift+Insert | Paste from clipboard |
+| Shift+PageUp | Scroll up |
+| Shift+PageDown | Scroll down |
 
 ## Requirements
 
