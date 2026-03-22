@@ -99,6 +99,20 @@ public class TabManager
         TabsChanged?.Invoke();
     }
 
+    public void MoveTab(int id, int newIndex)
+    {
+        var oldIndex = tabs.FindIndex(t => t.Id == id);
+        if (oldIndex < 0 || newIndex < 0 || newIndex >= tabs.Count || oldIndex == newIndex)
+        {
+            return;
+        }
+
+        var tab = tabs[oldIndex];
+        tabs.RemoveAt(oldIndex);
+        tabs.Insert(newIndex, tab);
+        TabsChanged?.Invoke();
+    }
+
     public void ActivateNextTab()
     {
         if (tabs.Count <= 1)
