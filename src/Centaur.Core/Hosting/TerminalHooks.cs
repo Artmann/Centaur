@@ -17,3 +17,5 @@ public record PtyDataReceivedEvent(ReadOnlyMemory<byte> Data);
 public record PtyExitedEvent(int ExitCode);
 
 public record CommandSubmittedEvent(string Command);
+
+public record ReverseSearchRequestedEvent;

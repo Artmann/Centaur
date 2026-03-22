@@ -51,11 +51,19 @@ public class TerminalControl : Control
     int wordAnchorStart,
         wordAnchorEnd; // word-mode anchor boundaries
 
+    // Reverse search state
+    readonly CommandHistory commandHistory;
+    readonly ReverseSearchState reverseSearchState;
+    ReverseSearchOverlay? reverseSearchOverlay;
+    bool reverseSearchActive;
+
     public TerminalControl()
     {
         host = App.Services.GetRequiredService<ExtensionHost>();
         notifications = App.Services.GetRequiredService<INotificationService>();
         suggestionState = App.Services.GetRequiredService<SuggestionState>();
+        commandHistory = App.Services.GetRequiredService<CommandHistory>();
+        reverseSearchState = App.Services.GetRequiredService<ReverseSearchState>();
 
         var themeProvider = host.GetProvider<IThemeProvider>();
         theme =
@@ -407,6 +415,11 @@ public class TerminalControl : Control
     {
         base.OnKeyDown(e);
 
+        if (reverseSearchActive)
+        {
+            return;
+        }
+
         if (pty == null)
         {
             return;
@@ -473,6 +486,13 @@ public class TerminalControl : Control
             if (e.Key == Key.V)
             {
                 PasteFromClipboard();
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.R)
+            {
+                OpenReverseSearch();
                 e.Handled = true;
                 return;
             }
@@ -626,6 +646,43 @@ public class TerminalControl : Control
         {
             suggestionState.Clear();
         }
+    }
+
+    void OpenReverseSearch()
+    {
+        if (reverseSearchActive)
+        {
+            return;
+        }
+
+        reverseSearchActive = true;
+
+        if (reverseSearchOverlay == null)
+        {
+            reverseSearchOverlay = new ReverseSearchOverlay(reverseSearchState);
+            reverseSearchOverlay.CommandSelected += command =>
+            {
+                CloseReverseSearch();
+                host.Events.Publish(new CommandSubmittedEvent(command));
+                SendToPty(Encoding.UTF8.GetBytes(command + "\r"));
+            };
+            reverseSearchOverlay.CloseRequested += CloseReverseSearch;
+
+            if (Parent is Panel panel)
+            {
+                panel.Children.Add(reverseSearchOverlay);
+            }
+        }
+
+        reverseSearchOverlay.Show(theme, commandHistory.GetAll());
+        host.Events.Publish(new ReverseSearchRequestedEvent());
+    }
+
+    void CloseReverseSearch()
+    {
+        reverseSearchOverlay?.Hide();
+        reverseSearchActive = false;
+        Focus();
     }
 
     async void SendToPty(byte[] data)

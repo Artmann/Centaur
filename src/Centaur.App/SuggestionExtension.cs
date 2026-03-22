@@ -11,14 +11,9 @@ public class SuggestionExtension : IExtension, ISuggestionProvider
 
     public int Priority => 100;
 
-    public SuggestionExtension(INotificationService notifications)
+    public SuggestionExtension(CommandHistory history, INotificationService notifications)
     {
-        var historyDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Centaur"
-        );
-        var historyFile = Path.Combine(historyDir, "command-history.json");
-        history = new CommandHistory(historyFile);
+        this.history = history;
         this.notifications = notifications;
     }
 

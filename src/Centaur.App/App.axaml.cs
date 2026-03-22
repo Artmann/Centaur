@@ -43,10 +43,26 @@ public partial class App : Application
         services.AddSingleton<INotificationService>(sp =>
             sp.GetRequiredService<NotificationServiceExtension>()
         );
+
+        // Shared command history
+        services.AddSingleton(sp => new CommandHistory(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Centaur",
+                "command-history.json"
+            )
+        ));
+
+        // Suggestions
         services.AddSingleton<SuggestionState>();
         services.AddSingleton<SuggestionExtension>();
         services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SuggestionExtension>());
         services.AddSingleton<SuggestionOverlay>();
         services.AddSingleton<IProvider>(sp => sp.GetRequiredService<SuggestionOverlay>());
+
+        // Reverse search
+        services.AddSingleton<ReverseSearchState>();
+        services.AddSingleton<ReverseSearchExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<ReverseSearchExtension>());
     }
 }
