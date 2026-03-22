@@ -23,7 +23,7 @@ public class TerminalControl : Control
     readonly ExtensionHost host;
     readonly INotificationService notifications;
     readonly TerminalTheme theme;
-    readonly ScreenBuffer buffer;
+    readonly ScreenBuffer initialBuffer;
     readonly TerminalRenderer renderer;
     readonly VtParser parser;
     readonly object bufferLock = new();
@@ -58,8 +58,8 @@ public class TerminalControl : Control
         renderer = new TerminalRenderer(theme);
 
         // Start with a default size; will resize once we know actual bounds
-        buffer = new ScreenBuffer(80, 24, theme);
-        parser = new VtParser(buffer, theme);
+        initialBuffer = new ScreenBuffer(80, 24, theme);
+        parser = new VtParser(initialBuffer, theme);
 
         Focusable = true;
         ClipToBounds = true;
@@ -82,7 +82,7 @@ public class TerminalControl : Control
         var newCols = Math.Max(1, (int)(width / renderer.cellWidth));
         var newRows = Math.Max(1, (int)(height / renderer.cellHeight));
 
-        if (newCols == buffer.columns && newRows == buffer.rows)
+        if (newCols == parser.ActiveBuffer.columns && newRows == parser.ActiveBuffer.rows)
         {
             if (!ptyStarted && isAttached)
             {
@@ -156,8 +156,8 @@ public class TerminalControl : Control
                 rows;
             lock (bufferLock)
             {
-                cols = buffer.columns;
-                rows = buffer.rows;
+                cols = parser.ActiveBuffer.columns;
+                rows = parser.ActiveBuffer.rows;
             }
 
             var options = new PtyOptions(executable: "powershell.exe", columns: cols, rows: rows);
@@ -224,8 +224,9 @@ public class TerminalControl : Control
 
     (int col, int row) PixelToGrid(Point p)
     {
-        var col = Math.Clamp((int)(p.X / renderer.cellWidth), 0, buffer.columns - 1);
-        var row = Math.Clamp((int)(p.Y / renderer.cellHeight), 0, buffer.rows - 1);
+        var active = parser.ActiveBuffer;
+        var col = Math.Clamp((int)(p.X / renderer.cellWidth), 0, active.columns - 1);
+        var row = Math.Clamp((int)(p.Y / renderer.cellHeight), 0, active.rows - 1);
         return (col, row);
     }
 
@@ -241,7 +242,7 @@ public class TerminalControl : Control
             selectionMode = 2;
             selAnchorCol = 0;
             selAnchorRow = row;
-            selCurrentCol = buffer.columns;
+            selCurrentCol = parser.ActiveBuffer.columns;
             selCurrentRow = row;
             hasSelection = true;
         }
@@ -251,8 +252,8 @@ public class TerminalControl : Control
             selectionMode = 1;
             lock (bufferLock)
             {
-                wordAnchorStart = TextSelection.FindWordStart(buffer, col, row);
-                wordAnchorEnd = TextSelection.FindWordEnd(buffer, col, row);
+                wordAnchorStart = TextSelection.FindWordStart(parser.ActiveBuffer, col, row);
+                wordAnchorEnd = TextSelection.FindWordEnd(parser.ActiveBuffer, col, row);
             }
             selAnchorCol = wordAnchorStart;
             selAnchorRow = row;
@@ -290,14 +291,14 @@ public class TerminalControl : Control
             // Line mode: snap to full lines
             if (row < selAnchorRow)
             {
-                selAnchorCol = buffer.columns;
+                selAnchorCol = parser.ActiveBuffer.columns;
                 selCurrentCol = 0;
                 selCurrentRow = row;
             }
             else
             {
                 selAnchorCol = 0;
-                selCurrentCol = buffer.columns;
+                selCurrentCol = parser.ActiveBuffer.columns;
                 selCurrentRow = row;
             }
             hasSelection = true;
@@ -312,13 +313,13 @@ public class TerminalControl : Control
                 if (beforeAnchor)
                 {
                     selAnchorCol = wordAnchorEnd;
-                    selCurrentCol = TextSelection.FindWordStart(buffer, col, row);
+                    selCurrentCol = TextSelection.FindWordStart(parser.ActiveBuffer, col, row);
                     selCurrentRow = row;
                 }
                 else
                 {
                     selAnchorCol = wordAnchorStart;
-                    selCurrentCol = TextSelection.FindWordEnd(buffer, col, row);
+                    selCurrentCol = TextSelection.FindWordEnd(parser.ActiveBuffer, col, row);
                     selCurrentRow = row;
                 }
             }
@@ -490,7 +491,7 @@ public class TerminalControl : Control
         string text;
         lock (bufferLock)
         {
-            text = TextSelection.ExtractText(buffer, sel);
+            text = TextSelection.ExtractText(parser.ActiveBuffer, sel);
         }
 
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
@@ -512,11 +513,13 @@ public class TerminalControl : Control
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
         var overlays = host.GetProviders<IRenderOverlay>();
 
-        // Snapshot buffer under lock so render doesn't block PTY reads
+        // Snapshot the active buffer under lock so render doesn't block PTY reads
         ScreenBuffer snapshot;
+        bool cursorVis;
         lock (bufferLock)
         {
-            snapshot = buffer.Snapshot();
+            snapshot = parser.ActiveBuffer.Snapshot();
+            cursorVis = parser.CursorVisible;
         }
 
         context.Custom(
@@ -526,7 +529,7 @@ public class TerminalControl : Control
                 renderer,
                 GetNormalizedSelection(),
                 overlays,
-                cursorVisible: true
+                cursorVisible: cursorVis
             )
         );
     }
