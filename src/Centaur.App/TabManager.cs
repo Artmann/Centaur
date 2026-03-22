@@ -87,6 +87,18 @@ public class TabManager
         TabsChanged?.Invoke();
     }
 
+    public void RenameTab(int id, string title)
+    {
+        var tab = tabs.Find(t => t.Id == id);
+        if (tab == null)
+        {
+            return;
+        }
+
+        tab.Title = title;
+        TabsChanged?.Invoke();
+    }
+
     public void ActivateNextTab()
     {
         if (tabs.Count <= 1)

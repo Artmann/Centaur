@@ -34,6 +34,7 @@ public partial class MainWindow : Window
         tabBar.TabSelected += id => tabManager.ActivateTab(id);
         tabBar.NewTabRequested += () => tabManager.CreateTab();
         tabBar.TabClosed += id => tabManager.CloseTab(id);
+        tabBar.TabRenamed += (id, title) => tabManager.RenameTab(id, title);
         tabManager.TabsChanged += () => tabBar.Update(tabManager.Tabs, tabManager.ActiveTabId);
 
         UpdateContentMargin();

@@ -23,6 +23,7 @@ public class TabBar : Control
     public event Action<int>? TabSelected;
     public event Action? NewTabRequested;
     public event Action<int>? TabClosed;
+    public event Action<int, string>? TabRenamed;
 
     public TabBar()
     {
@@ -109,6 +110,75 @@ public class TabBar : Control
 
         var tabId = tab.Id;
 
+        var renameBox = new TextBox
+        {
+            FontSize = 12,
+            Height = 22,
+            MinWidth = 80,
+            MaxWidth = 180,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(8, 0, 20, 0),
+            Background = SolidColorBrush.Parse("#1E2030"),
+            Foreground = activeText,
+            CaretBrush = activeText,
+            BorderBrush = SolidColorBrush.Parse("#494D64"),
+            BorderThickness = new Thickness(1),
+            IsVisible = false,
+            IsHitTestVisible = true,
+        };
+        panel.Children.Add(renameBox);
+
+        void CommitRename()
+        {
+            if (!renameBox.IsVisible)
+            {
+                return;
+            }
+
+            var newName = renameBox.Text?.Trim();
+            renameBox.IsVisible = false;
+            label.IsVisible = true;
+            if (!string.IsNullOrEmpty(newName))
+            {
+                TabRenamed?.Invoke(tabId, newName);
+            }
+        }
+
+        void StartRename()
+        {
+            renameBox.Text = tab.Title;
+            label.IsVisible = false;
+            renameBox.IsVisible = true;
+            renameBox.Focus();
+            renameBox.SelectAll();
+        }
+
+        renameBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                CommitRename();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                renameBox.IsVisible = false;
+                label.IsVisible = true;
+                e.Handled = true;
+            }
+        };
+
+        renameBox.LostFocus += (_, _) => CommitRename();
+
+        var renameMenuItem = new MenuItem { Header = "Rename Tab" };
+        renameMenuItem.Click += (_, _) => StartRename();
+
+        var closeMenuItem = new MenuItem { Header = "Close Tab" };
+        closeMenuItem.Click += (_, _) => TabClosed?.Invoke(tabId);
+
+        panel.ContextMenu = new ContextMenu { Items = { renameMenuItem, closeMenuItem } };
+
         panel.PointerEntered += (_, _) =>
         {
             if (!isActive)
@@ -128,8 +198,11 @@ public class TabBar : Control
 
         panel.PointerPressed += (_, e) =>
         {
-            TabSelected?.Invoke(tabId);
-            e.Handled = true;
+            if (e.GetCurrentPoint(panel).Properties.IsLeftButtonPressed)
+            {
+                TabSelected?.Invoke(tabId);
+                e.Handled = true;
+            }
         };
 
         closeButton.PointerEntered += (_, _) =>
