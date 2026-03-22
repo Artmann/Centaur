@@ -354,14 +354,69 @@ public class TerminalControl : Control
         e.Handled = true;
     }
 
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+
+        if (parser.IsAlternateScreen)
+        {
+            return;
+        }
+
+        var delta = (int)e.Delta.Y;
+        var scrollLines = Math.Max(1, Math.Abs(delta) * 3);
+
+        lock (bufferLock)
+        {
+            if (delta > 0)
+            {
+                parser.ActiveBuffer.ScrollViewUp(scrollLines);
+            }
+            else
+            {
+                parser.ActiveBuffer.ScrollViewDown(scrollLines);
+            }
+        }
+
+        hasSelection = false;
+        e.Handled = true;
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
 
         if (pty == null)
+        {
             return;
+        }
 
         byte[]? bytes = null;
+
+        // Shift+PageUp/PageDown for scrollback navigation
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && !parser.IsAlternateScreen)
+        {
+            if (e.Key == Key.PageUp)
+            {
+                lock (bufferLock)
+                {
+                    parser.ActiveBuffer.ScrollViewUp(parser.ActiveBuffer.rows - 1);
+                }
+                hasSelection = false;
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.PageDown)
+            {
+                lock (bufferLock)
+                {
+                    parser.ActiveBuffer.ScrollViewDown(parser.ActiveBuffer.rows - 1);
+                }
+                hasSelection = false;
+                e.Handled = true;
+                return;
+            }
+        }
 
         // Shift+Insert paste
         if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.Insert)
@@ -450,7 +505,14 @@ public class TerminalControl : Control
     async void SendToPty(byte[] data)
     {
         if (pty == null)
+        {
             return;
+        }
+
+        lock (bufferLock)
+        {
+            parser.ActiveBuffer.ScrollToBottom();
+        }
 
         try
         {

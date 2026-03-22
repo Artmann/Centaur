@@ -14,9 +14,12 @@ public class ScreenBuffer
     public int cursorY { get; set; }
     public int scrollTop { get; private set; }
     public int scrollBottom { get; private set; }
+    public int ScrollOffset { get; private set; }
+    public int ScrollbackCount => scrollback?.Count ?? 0;
 
     Cell[] cells;
     readonly Cell defaultCell;
+    readonly ScrollbackBuffer? scrollback;
 
     // Pre-allocated snapshot buffer for lock-free rendering
     ScreenBuffer? snapshotBuffer;
@@ -25,10 +28,21 @@ public class ScreenBuffer
         : this(columns, rows, CatppuccinThemes.Macchiato) { }
 
     public ScreenBuffer(int columns, int rows, TerminalTheme theme)
+        : this(columns, rows, theme, enableScrollback: true) { }
+
+    public ScreenBuffer(int columns, int rows, bool enableScrollback)
+        : this(columns, rows, CatppuccinThemes.Macchiato, enableScrollback) { }
+
+    public ScreenBuffer(int columns, int rows, TerminalTheme theme, bool enableScrollback)
     {
         this.columns = columns;
         this.rows = rows;
         defaultCell = new Cell(' ', theme.Foreground, theme.Background);
+
+        if (enableScrollback)
+        {
+            scrollback = new ScrollbackBuffer(10000);
+        }
 
         cells = new Cell[columns * rows];
         scrollTop = 0;
@@ -53,10 +67,61 @@ public class ScreenBuffer
 
     public ScreenBuffer Snapshot()
     {
-        snapshotBuffer ??= new ScreenBuffer(columns, rows);
-        Array.Copy(cells, snapshotBuffer.cells, cells.Length);
-        snapshotBuffer.cursorX = cursorX;
-        snapshotBuffer.cursorY = cursorY;
+        if (
+            snapshotBuffer == null
+            || snapshotBuffer.columns != columns
+            || snapshotBuffer.rows != rows
+        )
+        {
+            snapshotBuffer = new ScreenBuffer(columns, rows, enableScrollback: false);
+        }
+
+        if (ScrollOffset > 0 && scrollback != null)
+        {
+            var scrollbackRows = Math.Min(ScrollOffset, rows);
+            var liveRows = rows - scrollbackRows;
+            var scrollbackStart = scrollback.Count - ScrollOffset;
+
+            // Copy scrollback rows into top of snapshot
+            for (int y = 0; y < scrollbackRows; y++)
+            {
+                var line = scrollback.GetLine(scrollbackStart + y);
+                var copyLen = Math.Min(line.Length, columns);
+                Array.Copy(line, 0, snapshotBuffer.cells, y * columns, copyLen);
+                // Pad if scrollback row is narrower than current viewport
+                if (copyLen < columns)
+                {
+                    Array.Fill(
+                        snapshotBuffer.cells,
+                        defaultCell,
+                        y * columns + copyLen,
+                        columns - copyLen
+                    );
+                }
+            }
+
+            // Copy live buffer rows into bottom of snapshot
+            if (liveRows > 0)
+            {
+                Array.Copy(
+                    cells,
+                    0,
+                    snapshotBuffer.cells,
+                    scrollbackRows * columns,
+                    liveRows * columns
+                );
+            }
+
+            snapshotBuffer.cursorX = cursorX;
+            snapshotBuffer.cursorY = -1; // Hide cursor when scrolled up
+        }
+        else
+        {
+            Array.Copy(cells, snapshotBuffer.cells, cells.Length);
+            snapshotBuffer.cursorX = cursorX;
+            snapshotBuffer.cursorY = cursorY;
+        }
+
         return snapshotBuffer;
     }
 
@@ -84,6 +149,7 @@ public class ScreenBuffer
         cells = newCells;
         columns = newColumns;
         rows = newRows;
+        ScrollOffset = 0;
         snapshotBuffer = null; // Force re-creation on next snapshot
 
         // Clamp cursor
@@ -147,8 +213,24 @@ public class ScreenBuffer
         }
         if (lines >= rows)
         {
+            // Capture all rows to scrollback before clearing
+            if (scrollback != null)
+            {
+                for (int y = 0; y < rows; y++)
+                {
+                    scrollback.PushLine(cells.AsSpan(y * columns, columns));
+                }
+            }
             Array.Fill(cells, defaultCell);
             return;
+        }
+        // Capture the rows about to scroll off the top
+        if (scrollback != null)
+        {
+            for (int y = 0; y < lines; y++)
+            {
+                scrollback.PushLine(cells.AsSpan(y * columns, columns));
+            }
         }
         Array.Copy(cells, columns * lines, cells, 0, columns * (rows - lines));
         Array.Fill(cells, defaultCell, columns * (rows - lines), columns * lines);
@@ -175,15 +257,36 @@ public class ScreenBuffer
         {
             return;
         }
+
+        var isFullScreen = top == 0 && bottom == rows - 1;
         var regionHeight = bottom - top + 1;
+
         if (lines >= regionHeight)
         {
+            // Capture rows to scrollback if full-screen region
+            if (isFullScreen && scrollback != null)
+            {
+                for (int y = top; y <= bottom; y++)
+                {
+                    scrollback.PushLine(cells.AsSpan(y * columns, columns));
+                }
+            }
             for (int y = top; y <= bottom; y++)
             {
                 Array.Fill(cells, defaultCell, y * columns, columns);
             }
             return;
         }
+
+        // Capture the rows about to scroll off the top (only for full-screen region)
+        if (isFullScreen && scrollback != null)
+        {
+            for (int y = top; y < top + lines; y++)
+            {
+                scrollback.PushLine(cells.AsSpan(y * columns, columns));
+            }
+        }
+
         // Shift lines up within region
         for (int y = top; y <= bottom - lines; y++)
         {
@@ -221,5 +324,30 @@ public class ScreenBuffer
         {
             Array.Fill(cells, defaultCell, y * columns, columns);
         }
+    }
+
+    public void ScrollViewUp(int lines)
+    {
+        if (scrollback == null)
+        {
+            return;
+        }
+        ScrollOffset = Math.Min(ScrollOffset + lines, scrollback.Count);
+    }
+
+    public void ScrollViewDown(int lines)
+    {
+        ScrollOffset = Math.Max(ScrollOffset - lines, 0);
+    }
+
+    public void ScrollToBottom()
+    {
+        ScrollOffset = 0;
+    }
+
+    public void ClearScrollback()
+    {
+        scrollback?.Clear();
+        ScrollOffset = 0;
     }
 }

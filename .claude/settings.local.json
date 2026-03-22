@@ -37,7 +37,9 @@
       "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/Artga/.claude/play-sound.ps1\")",
       "Bash(bash \"C:\\\\Users\\\\Artga\\\\.claude\\\\plugins\\\\cache\\\\claude-plugins-official\\\\superpowers\\\\5.0.5\\\\skills\\\\brainstorming\\\\scripts\\\\start-server.sh\" --project-dir \"C:\\\\Users\\\\Artga\\\\Code\\\\Centaur\")",
       "Bash(powershell.exe -NoProfile -Command \"\\(Get-Content 'C:\\\\Users\\\\Artga\\\\.claude\\\\settings.json' -Raw | ConvertFrom-Json\\).hooks.Notification[0].hooks[0].command; \\(Get-Content 'C:\\\\Users\\\\Artga\\\\.claude\\\\settings.json' -Raw | ConvertFrom-Json\\).hooks.Stop[0].hooks[0].command\")",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(grep -r PointerWheel --include=*.cs -l)",
+      "Read(//c/Users/Artga/.nuget/packages/avalonia/**)"
     ]
   }
 }

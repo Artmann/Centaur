@@ -48,7 +48,12 @@ public class VtParser
     public VtParser(ScreenBuffer buffer, TerminalTheme theme)
     {
         this.mainBuffer = buffer;
-        this.alternateBuffer = new ScreenBuffer(buffer.columns, buffer.rows, theme);
+        this.alternateBuffer = new ScreenBuffer(
+            buffer.columns,
+            buffer.rows,
+            theme,
+            enableScrollback: false
+        );
         this.buffer = buffer;
         this.theme = theme;
         currentFg = theme.Foreground;
@@ -434,6 +439,11 @@ public class VtParser
 
     void LineFeed()
     {
+        if (buffer.ScrollOffset > 0)
+        {
+            buffer.ScrollToBottom();
+        }
+
         if (buffer.cursorY == buffer.scrollBottom)
         {
             buffer.ScrollUpInRegion(1, buffer.scrollTop, buffer.scrollBottom);
@@ -473,6 +483,7 @@ public class VtParser
                 break;
             case 3: // Erase entire screen and scrollback
                 buffer.ClearCells();
+                buffer.ClearScrollback();
                 break;
         }
     }
