@@ -98,6 +98,14 @@ public class TerminalControl : Control, IPaneTerminal
 
     ContextMenu BuildContextMenu()
     {
+        var copy = new MenuItem { Header = "Copy" };
+        copy.Click += (_, _) => CopySelectionToClipboard();
+
+        var paste = new MenuItem { Header = "Paste" };
+        paste.Click += (_, _) => PasteFromClipboard();
+
+        var topSeparator = new Separator();
+
         var splitRight = new MenuItem { Header = "Split Right" };
         splitRight.Click += (_, _) => SplitRequested?.Invoke(SplitDirection.Right);
 
@@ -113,7 +121,27 @@ public class TerminalControl : Control, IPaneTerminal
         var closePane = new MenuItem { Header = "Close Pane" };
         closePane.Click += (_, _) => CloseRequested?.Invoke();
 
-        return new ContextMenu { Items = { splitRight, splitLeft, splitDown, splitUp, closePane } };
+        var menu = new ContextMenu
+        {
+            Items =
+            {
+                copy,
+                paste,
+                topSeparator,
+                splitRight,
+                splitLeft,
+                splitDown,
+                splitUp,
+                closePane,
+            },
+        };
+
+        menu.Opening += (_, _) =>
+        {
+            copy.IsVisible = hasSelection;
+        };
+
+        return menu;
     }
 
     protected override Size ArrangeOverride(Size finalSize)
