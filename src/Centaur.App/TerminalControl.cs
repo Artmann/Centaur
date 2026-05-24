@@ -67,6 +67,9 @@ public class TerminalControl : Control, IPaneTerminal
     SettingsOverlay? settingsOverlay;
     bool settingsActive;
 
+    // Read-only state (per-pane)
+    bool isReadOnly;
+
     public TerminalControl()
     {
         host = App.Services.GetRequiredService<ExtensionHost>();
@@ -104,6 +107,13 @@ public class TerminalControl : Control, IPaneTerminal
         var paste = new MenuItem { Header = "Paste" };
         paste.Click += (_, _) => PasteFromClipboard();
 
+        var readOnly = new MenuItem
+        {
+            Header = "Read-Only Mode",
+            ToggleType = MenuItemToggleType.CheckBox,
+        };
+        readOnly.Click += (_, _) => isReadOnly = !isReadOnly;
+
         var topSeparator = new Separator();
 
         var splitRight = new MenuItem { Header = "Split Right" };
@@ -127,6 +137,7 @@ public class TerminalControl : Control, IPaneTerminal
             {
                 copy,
                 paste,
+                readOnly,
                 topSeparator,
                 splitRight,
                 splitLeft,
@@ -139,6 +150,7 @@ public class TerminalControl : Control, IPaneTerminal
         menu.Opening += (_, _) =>
         {
             copy.IsVisible = hasSelection;
+            readOnly.IsChecked = isReadOnly;
         };
 
         return menu;
@@ -617,7 +629,7 @@ public class TerminalControl : Control, IPaneTerminal
         else
         {
             // Capture command on Enter before sending to PTY
-            if (e.Key == Key.Enter)
+            if (e.Key == Key.Enter && !isReadOnly)
             {
                 var input = ExtractUserInput();
                 if (!string.IsNullOrWhiteSpace(input))
@@ -688,7 +700,7 @@ public class TerminalControl : Control, IPaneTerminal
     {
         base.OnTextInput(e);
 
-        if (pty == null || string.IsNullOrEmpty(e.Text))
+        if (pty == null || isReadOnly || string.IsNullOrEmpty(e.Text))
         {
             return;
         }
@@ -870,7 +882,7 @@ public class TerminalControl : Control, IPaneTerminal
 
     async void SendToPty(byte[] data)
     {
-        if (pty == null)
+        if (pty == null || isReadOnly)
         {
             return;
         }
@@ -957,7 +969,8 @@ public class TerminalControl : Control, IPaneTerminal
                 renderer,
                 GetNormalizedSelection(),
                 overlays,
-                cursorVisible: cursorVis
+                cursorVisible: cursorVis,
+                readOnly: isReadOnly
             )
         );
     }
@@ -970,6 +983,7 @@ public class TerminalControl : Control, IPaneTerminal
         readonly TextSelection? selection;
         readonly IReadOnlyList<IRenderOverlay> overlays;
         readonly bool cursorVisible;
+        readonly bool readOnly;
 
         public TerminalDrawOperation(
             Rect bounds,
@@ -977,7 +991,8 @@ public class TerminalControl : Control, IPaneTerminal
             TerminalRenderer renderer,
             TextSelection? selection,
             IReadOnlyList<IRenderOverlay> overlays,
-            bool cursorVisible = true
+            bool cursorVisible = true,
+            bool readOnly = false
         )
         {
             this.bounds = bounds;
@@ -986,6 +1001,7 @@ public class TerminalControl : Control, IPaneTerminal
             this.selection = selection;
             this.overlays = overlays;
             this.cursorVisible = cursorVisible;
+            this.readOnly = readOnly;
         }
 
         public Rect Bounds => bounds;
@@ -1013,7 +1029,8 @@ public class TerminalControl : Control, IPaneTerminal
                 (float)bounds.Width,
                 selection,
                 overlays,
-                cursorVisible
+                cursorVisible,
+                readOnly
             );
         }
     }
