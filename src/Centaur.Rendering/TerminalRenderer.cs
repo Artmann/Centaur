@@ -11,6 +11,7 @@ public class TerminalRenderer : IDisposable
     readonly SKPaint textPaint;
     readonly SKPaint backgroundPaint;
     readonly SKPaint cursorPaint;
+    readonly SKPaint readOnlyStrokePaint;
     readonly SKTextBlobBuilder blobBuilder = new();
     readonly TerminalTheme theme;
     readonly float textYOffset;
@@ -40,6 +41,13 @@ public class TerminalRenderer : IDisposable
 
         cursorPaint = new SKPaint { Color = new SKColor(theme.Cursor) };
 
+        readOnlyStrokePaint = new SKPaint
+        {
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1.5f,
+            IsAntialias = true,
+        };
+
         cellWidth = font.MeasureText("M");
         cellHeight = fontSize * 1.2f;
         textYOffset = cellHeight - (cellHeight - font.Size) / 2;
@@ -51,7 +59,8 @@ public class TerminalRenderer : IDisposable
         float canvasWidth,
         TextSelection? selection = null,
         IReadOnlyList<IRenderOverlay>? overlays = null,
-        bool cursorVisible = true
+        bool cursorVisible = true,
+        bool readOnly = false
     )
     {
         canvas.Clear(new SKColor(theme.Background));
@@ -157,6 +166,11 @@ public class TerminalRenderer : IDisposable
             }
         }
 
+        if (readOnly)
+        {
+            DrawReadOnlyBadge(canvas, canvasWidth);
+        }
+
         if (overlays != null)
         {
             foreach (var overlay in overlays)
@@ -164,6 +178,26 @@ public class TerminalRenderer : IDisposable
                 overlay.Render(canvas, canvasWidth, theme, font, typeface);
             }
         }
+    }
+
+    void DrawReadOnlyBadge(SKCanvas canvas, float canvasWidth)
+    {
+        const string text = "READ-ONLY";
+        var padding = 6f;
+        var textWidth = font.MeasureText(text);
+        var height = font.Size * 1.4f;
+        var width = textWidth + padding * 2;
+        var x = canvasWidth - width - padding;
+        var y = padding;
+
+        var color = new SKColor(theme.Palette[1]);
+
+        readOnlyStrokePaint.Color = color;
+        canvas.DrawRoundRect(x, y, width, height, 3f, 3f, readOnlyStrokePaint);
+
+        textPaint.Color = color;
+        canvas.DrawText(text, x + padding, y + font.Size, font, textPaint);
+        textPaint.Color = new SKColor(theme.Foreground);
     }
 
     void DrawGlyphsByColor(SKCanvas canvas, int count)
@@ -246,6 +280,7 @@ public class TerminalRenderer : IDisposable
         textPaint.Dispose();
         backgroundPaint.Dispose();
         cursorPaint.Dispose();
+        readOnlyStrokePaint.Dispose();
         font.Dispose();
         typeface.Dispose();
     }
