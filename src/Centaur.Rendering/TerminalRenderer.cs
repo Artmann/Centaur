@@ -21,9 +21,17 @@ public class TerminalRenderer : IDisposable
     SKPoint[] posBuf = [];
     uint[] colorBuf = [];
     bool[] drawnBuf = [];
+    SKTypeface?[] typefaceBuf = [];
     ushort[] runGlyphBuf = [];
     SKPoint[] runPosBuf = [];
     int bufferCapacity;
+
+    // Font fallback: when the primary typeface lacks a glyph for a codepoint,
+    // ask the system font manager for a typeface that has it (e.g. for box-drawing,
+    // dingbats, color emoji). Resolutions are cached per-codepoint; matched typefaces
+    // get their own SKFont sized identically to the primary font.
+    readonly Dictionary<char, SKTypeface?> fallbackTypefaceCache = new();
+    readonly Dictionary<SKTypeface, SKFont> fallbackFontCache = new();
 
     public float cellWidth { get; }
     public float cellHeight { get; }
@@ -115,7 +123,10 @@ public class TerminalRenderer : IDisposable
                     continue;
                 }
 
-                glyphBuf[count] = font.GetGlyph(cell.character);
+                var tf = ResolveTypeface(cell.character);
+                var glyphFont = GetFont(tf);
+                glyphBuf[count] = glyphFont.GetGlyph(cell.character);
+                typefaceBuf[count] = tf;
                 posBuf[count] = new SKPoint(x * cellWidth, py);
                 colorBuf[count] = GetFgColor(cell, x, y, selection);
                 count++;
@@ -150,14 +161,16 @@ public class TerminalRenderer : IDisposable
             var cursorCell = buffer[buffer.cursorX, buffer.cursorY];
             if (cursorCell.character > ' ')
             {
-                var glyph = font.GetGlyph(cursorCell.character);
+                var tf = ResolveTypeface(cursorCell.character);
+                var cursorFont = GetFont(tf);
+                var glyph = cursorFont.GetGlyph(cursorCell.character);
                 var pos = new SKPoint(
                     buffer.cursorX * cellWidth,
                     buffer.cursorY * cellHeight + textYOffset
                 );
                 runGlyphBuf[0] = glyph;
                 runPosBuf[0] = pos;
-                using var blob = BuildBlob(runGlyphBuf, runPosBuf, 1);
+                using var blob = BuildBlob(cursorFont, runGlyphBuf, runPosBuf, 1);
                 if (blob != null)
                 {
                     textPaint.Color = new SKColor(theme.Background);
@@ -212,11 +225,12 @@ public class TerminalRenderer : IDisposable
             }
 
             var color = colorBuf[i];
+            var tf = typefaceBuf[i];
             var runCount = 0;
 
             for (var j = i; j < count; j++)
             {
-                if (colorBuf[j] == color)
+                if (!drawnBuf[j] && colorBuf[j] == color && typefaceBuf[j] == tf)
                 {
                     runGlyphBuf[runCount] = glyphBuf[j];
                     runPosBuf[runCount] = posBuf[j];
@@ -225,7 +239,8 @@ public class TerminalRenderer : IDisposable
                 }
             }
 
-            using var blob = BuildBlob(runGlyphBuf, runPosBuf, runCount);
+            var runFont = GetFont(tf);
+            using var blob = BuildBlob(runFont, runGlyphBuf, runPosBuf, runCount);
             if (blob != null)
             {
                 textPaint.Color = new SKColor(color);
@@ -234,17 +249,46 @@ public class TerminalRenderer : IDisposable
         }
     }
 
-    SKTextBlob? BuildBlob(ushort[] glyphs, SKPoint[] positions, int count)
+    SKTextBlob? BuildBlob(SKFont blobFont, ushort[] glyphs, SKPoint[] positions, int count)
     {
         if (count == 0)
         {
             return null;
         }
 
-        var run = blobBuilder.AllocatePositionedRun(font, count);
+        var run = blobBuilder.AllocatePositionedRun(blobFont, count);
         run.SetGlyphs(glyphs.AsSpan(0, count));
         run.SetPositions(positions.AsSpan(0, count));
         return blobBuilder.Build();
+    }
+
+    SKTypeface? ResolveTypeface(char c)
+    {
+        if (fallbackTypefaceCache.TryGetValue(c, out var cached))
+        {
+            return cached;
+        }
+
+        var resolved = font.GetGlyph(c) != 0 ? null : SKFontManager.Default.MatchCharacter(c);
+        fallbackTypefaceCache[c] = resolved;
+        return resolved;
+    }
+
+    SKFont GetFont(SKTypeface? tf)
+    {
+        if (tf == null)
+        {
+            return font;
+        }
+
+        if (fallbackFontCache.TryGetValue(tf, out var cached))
+        {
+            return cached;
+        }
+
+        var matched = new SKFont(tf, font.Size) { Subpixel = true };
+        fallbackFontCache[tf] = matched;
+        return matched;
     }
 
     void EnsureBuffers(int cellCount)
@@ -256,6 +300,7 @@ public class TerminalRenderer : IDisposable
             posBuf = new SKPoint[cellCount];
             colorBuf = new uint[cellCount];
             drawnBuf = new bool[cellCount];
+            typefaceBuf = new SKTypeface?[cellCount];
             runGlyphBuf = new ushort[cellCount];
             runPosBuf = new SKPoint[cellCount];
         }
@@ -281,6 +326,10 @@ public class TerminalRenderer : IDisposable
         backgroundPaint.Dispose();
         cursorPaint.Dispose();
         readOnlyStrokePaint.Dispose();
+        foreach (var f in fallbackFontCache.Values)
+        {
+            f.Dispose();
+        }
         font.Dispose();
         typeface.Dispose();
     }
