@@ -3,8 +3,10 @@
     xmlns:local="clr-namespace:Centaur.App"
     x:Class="Centaur.App.MainWindow"
     Title="Centaur"
-    Width="800"
-    Height="600"
+    Width="1280"
+    Height="800"
+    MinWidth="480"
+    MinHeight="320"
     Background="#24273A"
     ExtendClientAreaToDecorationsHint="True"
     ExtendClientAreaChromeHints="NoChrome"
@@ -69,6 +71,31 @@
         <!-- Close pressed -->
         <Style Selector="Button#closeButton:pressed /template/ ContentPresenter">
             <Setter Property="Background" Value="#EE99A8" />
+        </Style>
+
+        <!-- Context menu (Catppuccin Macchiato) -->
+        <Style Selector="ContextMenu">
+            <Setter Property="Background" Value="#363A4F" />
+            <Setter Property="BorderBrush" Value="#494D64" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="MenuItem">
+            <Setter Property="Foreground" Value="#CAD3F5" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Margin" Value="0,1" />
+        </Style>
+        <Style Selector="MenuItem /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+        <Style Selector="MenuItem:pointerover /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="#494D64" />
+        </Style>
+        <Style Selector="MenuItem:pointerover /template/ ContentPresenter#PART_HeaderPresenter">
+            <Setter Property="TextElement.Foreground" Value="#CAD3F5" />
         </Style>
     </Window.Styles>
 </Window>

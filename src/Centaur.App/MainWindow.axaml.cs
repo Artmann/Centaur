@@ -111,7 +111,7 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.W:
-                tabManager.CloseTab(tabManager.ActiveTabId);
+                tabManager.CloseFocusedPane();
                 e.Handled = true;
                 break;
             case >= Key.D1 and <= Key.D9:

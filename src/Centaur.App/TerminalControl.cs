@@ -8,6 +8,7 @@ using Avalonia.Platform;
 using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
 using Avalonia.Threading;
+using Centaur.App.Splits;
 using Centaur.Core.Hosting;
 using Centaur.Core.Pty;
 using Centaur.Core.Terminal;
@@ -18,8 +19,12 @@ using SkiaSharp;
 
 namespace Centaur.App;
 
-public class TerminalControl : Control
+public class TerminalControl : Control, IPaneTerminal
 {
+    Control IPaneTerminal.View => this;
+
+    bool IPaneTerminal.Focus() => Focus();
+
     readonly ExtensionHost host;
     readonly INotificationService notifications;
     readonly TerminalTheme theme;
@@ -84,6 +89,31 @@ public class TerminalControl : Control
 
         Focusable = true;
         ClipToBounds = true;
+
+        ContextMenu = BuildContextMenu();
+    }
+
+    public event Action<SplitDirection>? SplitRequested;
+    public event Action? CloseRequested;
+
+    ContextMenu BuildContextMenu()
+    {
+        var splitRight = new MenuItem { Header = "Split Right" };
+        splitRight.Click += (_, _) => SplitRequested?.Invoke(SplitDirection.Right);
+
+        var splitLeft = new MenuItem { Header = "Split Left" };
+        splitLeft.Click += (_, _) => SplitRequested?.Invoke(SplitDirection.Left);
+
+        var splitDown = new MenuItem { Header = "Split Down" };
+        splitDown.Click += (_, _) => SplitRequested?.Invoke(SplitDirection.Down);
+
+        var splitUp = new MenuItem { Header = "Split Up" };
+        splitUp.Click += (_, _) => SplitRequested?.Invoke(SplitDirection.Up);
+
+        var closePane = new MenuItem { Header = "Close Pane" };
+        closePane.Click += (_, _) => CloseRequested?.Invoke();
+
+        return new ContextMenu { Items = { splitRight, splitLeft, splitDown, splitUp, closePane } };
     }
 
     protected override Size ArrangeOverride(Size finalSize)
@@ -142,11 +172,24 @@ public class TerminalControl : Control
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        // Pause the animation loop. PTY and renderer survive detach so the control
+        // can be re-parented (e.g. when a tab is split into panes) without losing state.
+        // Final teardown happens in Close().
         isAttached = false;
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    bool closed;
+
+    public void Close()
+    {
+        if (closed)
+        {
+            return;
+        }
+        closed = true;
         StopPty();
         renderer.Dispose();
-        readCts?.Dispose();
-        base.OnDetachedFromVisualTree(e);
     }
 
     void ScheduleFrame()
@@ -284,7 +327,17 @@ public class TerminalControl : Control
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
-        var (col, row) = PixelToGrid(e.GetPosition(this));
+
+        var point = e.GetCurrentPoint(this);
+        if (!point.Properties.IsLeftButtonPressed)
+        {
+            // Right-click (and middle-click) bypass selection so the context menu can open
+            // and so this control still receives focus for pane-focus tracking.
+            Focus();
+            return;
+        }
+
+        var (col, row) = PixelToGrid(point.Position);
         var clickCount = e.ClickCount;
 
         if (clickCount >= 3)

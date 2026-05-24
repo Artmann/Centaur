@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Centaur.App.Splits;
 
 namespace Centaur.App;
 
@@ -22,18 +23,58 @@ public class TabManager
 
     public TabItem CreateTab()
     {
-        var terminal = new TerminalControl();
-        var tab = new TabItem
+        TabItem? tab = null;
+        var panes = new PaneTree(() =>
+        {
+            var terminal = new TerminalControl();
+            terminal.SplitRequested += direction =>
+            {
+                if (tab == null)
+                {
+                    return;
+                }
+                var leaf = tab.Panes.LeafFor(terminal);
+                if (leaf != null)
+                {
+                    tab.Panes.Split(leaf, direction);
+                }
+            };
+            terminal.CloseRequested += () =>
+            {
+                if (tab == null)
+                {
+                    return;
+                }
+                var leaf = tab.Panes.LeafFor(terminal);
+                if (leaf != null)
+                {
+                    ClosePane(tab, leaf);
+                }
+            };
+            terminal.PtyExited += () =>
+            {
+                if (tab == null)
+                {
+                    return;
+                }
+                var leaf = tab.Panes.LeafFor(terminal);
+                if (leaf != null)
+                {
+                    ClosePane(tab, leaf);
+                }
+            };
+            return terminal;
+        });
+
+        tab = new TabItem
         {
             Id = nextId++,
             Title = $"Terminal {tabs.Count + 1}",
-            Terminal = terminal,
+            Panes = panes,
         };
 
-        terminal.IsVisible = false;
-        contentPanel.Children.Add(terminal);
-
-        terminal.PtyExited += () => CloseTab(tab.Id);
+        panes.RootView.IsVisible = false;
+        contentPanel.Children.Add(panes.RootView);
 
         tabs.Add(tab);
         ActivateTab(tab.Id);
@@ -51,11 +92,11 @@ public class TabManager
 
         foreach (var tab in tabs)
         {
-            tab.Terminal.IsVisible = tab.Id == id;
+            tab.Panes.RootView.IsVisible = tab.Id == id;
         }
 
         activeTabId = id;
-        target.Terminal.Focus();
+        target.Panes.FocusedLeaf.Terminal.Focus();
         TabsChanged?.Invoke();
     }
 
@@ -68,11 +109,12 @@ public class TabManager
         }
 
         var tab = tabs[index];
+        tab.Panes.DisposeAll();
         tabs.RemoveAt(index);
 
         if (tabs.Count == 0)
         {
-            contentPanel.Children.Remove(tab.Terminal);
+            contentPanel.Children.Remove(tab.Panes.RootView);
             closeWindow();
             return;
         }
@@ -83,8 +125,27 @@ public class TabManager
             ActivateTab(tabs[newIndex].Id);
         }
 
-        contentPanel.Children.Remove(tab.Terminal);
+        contentPanel.Children.Remove(tab.Panes.RootView);
         TabsChanged?.Invoke();
+    }
+
+    public void ClosePane(TabItem tab, LeafPane leaf)
+    {
+        var treeEmpty = tab.Panes.Close(leaf);
+        if (treeEmpty)
+        {
+            CloseTab(tab.Id);
+        }
+    }
+
+    public void CloseFocusedPane()
+    {
+        var tab = tabs.Find(t => t.Id == activeTabId);
+        if (tab == null)
+        {
+            return;
+        }
+        ClosePane(tab, tab.Panes.FocusedLeaf);
     }
 
     public void RenameTab(int id, string title)
