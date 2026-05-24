@@ -38,12 +38,12 @@ jobs:
             -p:Version=${{ steps.ver.outputs.version }} `
             -o publish/win-x64
 
-      - name: Package zip
+      - name: Rename exe with version
         shell: pwsh
         run: |
-          $zip = "Centaur-${{ steps.ver.outputs.version }}-win-x64.zip"
-          Compress-Archive -Path publish/win-x64/* -DestinationPath $zip
-          "asset=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $exe = "Centaur-${{ steps.ver.outputs.version }}-win-x64.exe"
+          Move-Item publish/win-x64/Centaur.App.exe $exe
+          "asset=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
         id: pkg
 
       - name: Upload asset to release
