@@ -17,11 +17,47 @@ public class VtParser
     public bool IsAlternateScreen { get; private set; }
     public ScreenBuffer ActiveBuffer => buffer;
 
-    // Saved cursor state (DECSC/DECRC)
-    int savedCursorX;
-    int savedCursorY;
-    uint savedFg;
-    uint savedBg;
+    // Saved cursor state (DECSC/DECRC). Per-screen: the main and alternate buffers
+    // each have their own register, matching xterm. A full-screen app's save/restore
+    // on the alternate screen must not corrupt the main screen's cursor, which is
+    // saved on 1049h and restored on 1049l.
+    struct SavedCursor
+    {
+        public int x;
+        public int y;
+        public uint fg;
+        public uint bg;
+    }
+
+    SavedCursor mainSaved;
+    SavedCursor altSaved;
+
+    ref SavedCursor CurrentSaved()
+    {
+        if (buffer == alternateBuffer)
+        {
+            return ref altSaved;
+        }
+        return ref mainSaved;
+    }
+
+    void SaveCursor()
+    {
+        ref var slot = ref CurrentSaved();
+        slot.x = buffer.cursorX;
+        slot.y = buffer.cursorY;
+        slot.fg = currentFg;
+        slot.bg = currentBg;
+    }
+
+    void RestoreCursor()
+    {
+        ref var slot = ref CurrentSaved();
+        buffer.cursorX = slot.x;
+        buffer.cursorY = slot.y;
+        currentFg = slot.fg;
+        currentBg = slot.bg;
+    }
 
     enum State
     {
@@ -203,17 +239,11 @@ public class VtParser
                 state = State.Osc;
                 break;
             case (byte)'7': // DECSC - Save cursor
-                savedCursorX = buffer.cursorX;
-                savedCursorY = buffer.cursorY;
-                savedFg = currentFg;
-                savedBg = currentBg;
+                SaveCursor();
                 state = State.Ground;
                 break;
             case (byte)'8': // DECRC - Restore cursor
-                buffer.cursorX = savedCursorX;
-                buffer.cursorY = savedCursorY;
-                currentFg = savedFg;
-                currentBg = savedBg;
+                RestoreCursor();
                 state = State.Ground;
                 break;
             default:
@@ -331,16 +361,10 @@ public class VtParser
                 }
                 break;
             case 's': // SCP - Save Cursor Position (ANSI)
-                savedCursorX = buffer.cursorX;
-                savedCursorY = buffer.cursorY;
-                savedFg = currentFg;
-                savedBg = currentBg;
+                SaveCursor();
                 break;
             case 'u': // RCP - Restore Cursor Position (ANSI)
-                buffer.cursorX = savedCursorX;
-                buffer.cursorY = savedCursorY;
-                currentFg = savedFg;
-                currentBg = savedBg;
+                RestoreCursor();
                 break;
             case 'r': // DECSTBM - Set Top and Bottom Margins
             {
@@ -373,11 +397,9 @@ public class VtParser
                 case 1049: // Alternate Screen Buffer
                     if (enabled)
                     {
-                        // Save cursor, switch to alternate, clear
-                        savedCursorX = buffer.cursorX;
-                        savedCursorY = buffer.cursorY;
-                        savedFg = currentFg;
-                        savedBg = currentBg;
+                        // Save the main-screen cursor (into the main register, since the
+                        // main buffer is still active), switch to alternate, clear.
+                        SaveCursor();
                         buffer = alternateBuffer;
                         buffer.Clear();
                         buffer.SetScrollRegion(0, buffer.rows - 1);
@@ -385,12 +407,11 @@ public class VtParser
                     }
                     else
                     {
-                        // Switch back to main, restore cursor
+                        // Switch back to main, then restore from the main register. The
+                        // app's save/restore on the alternate screen used altSaved, so the
+                        // main-screen cursor saved on 1049h is intact.
                         buffer = mainBuffer;
-                        buffer.cursorX = savedCursorX;
-                        buffer.cursorY = savedCursorY;
-                        currentFg = savedFg;
-                        currentBg = savedBg;
+                        RestoreCursor();
                         IsAlternateScreen = false;
                     }
                     break;

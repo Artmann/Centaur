@@ -244,6 +244,29 @@ public class VtParserModesTests
     }
 
     [Fact]
+    public void AlternateScreen_AppSavesCursorOnAlt_DoesNotCorruptMainRestore()
+    {
+        // Shell prompt sits at (15, 10) on the main screen before a full-screen app runs.
+        buffer.cursorX = 15;
+        buffer.cursorY = 10;
+
+        Send("\x1b[?1049h"); // Enter alt screen — saves the main-screen cursor
+
+        // Full-screen app (e.g. Claude Code) moves its cursor and does its OWN
+        // save/restore (DECSC/DECRC) while drawing on the alt screen.
+        Send("\x1b[3;5H"); // move to (col 4, row 2) on alt
+        Send("\x1b" + "7"); // DECSC on alt screen
+        Send("\x1b[20;40H"); // move elsewhere on alt
+        Send("\x1b" + "8"); // DECRC on alt screen
+
+        Send("\x1b[?1049l"); // Exit alt screen — must restore the main-screen cursor
+
+        // The app's alt-screen save/restore must not leak into the main screen.
+        Assert.Equal(15, buffer.cursorX);
+        Assert.Equal(10, buffer.cursorY);
+    }
+
+    [Fact]
     public void AlternateScreen_ActiveBufferReturnsCurrentBuffer()
     {
         var mainBuf = parser.ActiveBuffer;
