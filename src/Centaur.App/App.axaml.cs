@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Centaur.App.Menus;
+using Centaur.App.Menus.Providers;
 using Centaur.Core.Hosting;
 using Centaur.Core.Terminal;
 using Centaur.Rendering;
@@ -65,6 +67,11 @@ public partial class App : Application
         services.AddSingleton<ReverseSearchState>();
         services.AddSingleton<ReverseSearchExtension>();
         services.AddSingleton<IExtension>(sp => sp.GetRequiredService<ReverseSearchExtension>());
+
+        // Context menu
+        services.AddSingleton<IProvider, ClipboardMenuProvider>();
+        services.AddSingleton<IProvider, ReadOnlyMenuProvider>();
+        services.AddSingleton<IProvider, PaneMenuProvider>();
 
         // Settings
         services.AddSingleton(sp => new Settings(

@@ -8,6 +8,7 @@ using Avalonia.Platform;
 using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
 using Avalonia.Threading;
+using Centaur.App.Menus;
 using Centaur.App.Splits;
 using Centaur.Core.Hosting;
 using Centaur.Core.Pty;
@@ -101,59 +102,65 @@ public class TerminalControl : Control, IPaneTerminal
 
     ContextMenu BuildContextMenu()
     {
-        var copy = new MenuItem { Header = "Copy" };
-        copy.Click += (_, _) => CopySelectionToClipboard();
-
-        var paste = new MenuItem { Header = "Paste" };
-        paste.Click += (_, _) => PasteFromClipboard();
-
-        var readOnly = new MenuItem
-        {
-            Header = "Read-Only Mode",
-            ToggleType = MenuItemToggleType.CheckBox,
-        };
-        readOnly.Click += (_, _) => isReadOnly = !isReadOnly;
-
-        var topSeparator = new Separator();
-
-        var splitRight = new MenuItem { Header = "Split Right" };
-        splitRight.Click += (_, _) => SplitRequested?.Invoke(SplitDirection.Right);
-
-        var splitLeft = new MenuItem { Header = "Split Left" };
-        splitLeft.Click += (_, _) => SplitRequested?.Invoke(SplitDirection.Left);
-
-        var splitDown = new MenuItem { Header = "Split Down" };
-        splitDown.Click += (_, _) => SplitRequested?.Invoke(SplitDirection.Down);
-
-        var splitUp = new MenuItem { Header = "Split Up" };
-        splitUp.Click += (_, _) => SplitRequested?.Invoke(SplitDirection.Up);
-
-        var closePane = new MenuItem { Header = "Close Pane" };
-        closePane.Click += (_, _) => CloseRequested?.Invoke();
-
-        var menu = new ContextMenu
-        {
-            Items =
-            {
-                copy,
-                paste,
-                readOnly,
-                topSeparator,
-                splitRight,
-                splitLeft,
-                splitDown,
-                splitUp,
-                closePane,
-            },
-        };
+        var menu = new ContextMenu();
+        var context = new MenuContext(this);
 
         menu.Opening += (_, _) =>
         {
-            copy.IsVisible = hasSelection;
-            readOnly.IsChecked = isReadOnly;
+            menu.Items.Clear();
+
+            var items = host.GetProviders<ITerminalContextMenuProvider>()
+                .SelectMany(p => p.GetItems(context))
+                .Where(i => i.IsVisible)
+                .ToList();
+
+            string? lastGroup = null;
+            foreach (var item in items)
+            {
+                if (lastGroup != null && item.Group != lastGroup)
+                {
+                    menu.Items.Add(new Separator());
+                }
+
+                var menuItem = new MenuItem { Header = item.Label };
+                if (item.IsChecked.HasValue)
+                {
+                    menuItem.ToggleType = MenuItemToggleType.CheckBox;
+                    menuItem.IsChecked = item.IsChecked.Value;
+                }
+
+                var onInvoke = item.OnInvoke;
+                menuItem.Click += (_, _) => onInvoke();
+
+                menu.Items.Add(menuItem);
+                lastGroup = item.Group;
+            }
         };
 
         return menu;
+    }
+
+    sealed class MenuContext : ITerminalContextMenuContext
+    {
+        readonly TerminalControl owner;
+
+        public MenuContext(TerminalControl owner)
+        {
+            this.owner = owner;
+        }
+
+        public bool HasSelection => owner.hasSelection;
+        public bool IsReadOnly => owner.isReadOnly;
+
+        public void ToggleReadOnly() => owner.isReadOnly = !owner.isReadOnly;
+
+        public void Copy() => owner.CopySelectionToClipboard();
+
+        public void Paste() => owner.PasteFromClipboard();
+
+        public void Split(SplitDirection direction) => owner.SplitRequested?.Invoke(direction);
+
+        public void Close() => owner.CloseRequested?.Invoke();
     }
 
     protected override Size ArrangeOverride(Size finalSize)
