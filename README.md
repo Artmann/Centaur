@@ -13,6 +13,8 @@
 
 Centaur is a modern terminal emulator built for speed. It uses GPU-accelerated rendering to keep your shell feeling snappy, even when scrolling through thousands of lines of build output or log files.
 
+<img width="1340" height="852" alt="Screenshot 2026-05-25 000251" src="https://github.com/user-attachments/assets/e6fa6734-3408-407f-a8a2-1def1221eb24" />
+
 ## Features
 
 **Fast rendering** — SkiaSharp-powered GPU rendering with HarfBuzz text shaping delivers smooth, flicker-free output at 60 FPS.
