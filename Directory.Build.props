@@ -3,5 +3,7 @@
     <NoWarn>$(NoWarn);IDE1006</NoWarn>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- Single source of truth for the app version (reported by XTVERSION, stamped on assemblies). -->
+    <Version>0.1.0</Version>
   </PropertyGroup>
 </Project>

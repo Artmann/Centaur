@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace Centaur.Core.Terminal;
 
 public class VtParser
@@ -39,6 +41,25 @@ public class VtParser
     public event Action<byte[]>? Respond;
 
     void Reply(string s) => Respond?.Invoke(System.Text.Encoding.Latin1.GetBytes(s));
+
+    // Version reported by XTVERSION. Resolved once from the assembly's build version
+    // (set in Directory.Build.props) so it tracks releases instead of a hardcoded literal.
+    static readonly string terminalVersion = ResolveVersion();
+
+    static string ResolveVersion()
+    {
+        var info = typeof(VtParser)
+            .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+        if (!string.IsNullOrEmpty(info))
+        {
+            // Strip any "+<gitsha>" build metadata SourceLink may have appended.
+            var plus = info.IndexOf('+', StringComparison.Ordinal);
+            return plus >= 0 ? info[..plus] : info;
+        }
+        var version = typeof(VtParser).Assembly.GetName().Version;
+        return version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "0.0.0";
+    }
 
     // OSC-driven state.
     public string? WindowTitle { get; private set; } // OSC 0/2
@@ -501,7 +522,7 @@ public class VtParser
             case 'q': // XTVERSION - report terminal name/version (CSI > q)
                 if (csiPrefix == '>' && csiIntermediate == '\0')
                 {
-                    Reply("\x1bP>|Centaur(0.1.0)\x1b\\");
+                    Reply($"\x1bP>|Centaur({terminalVersion})\x1b\\");
                 }
                 break;
         }
@@ -825,15 +846,17 @@ public class VtParser
         {
             var p = parts[i];
             if (
-                p.Length == 0
+                p.Length is < 1 or > 4
                 || !uint.TryParse(p, System.Globalization.NumberStyles.HexNumber, null, out var v)
             )
             {
                 return false;
             }
-            // Scale to 8 bits: a 1-hex-digit channel is 4 bits, 2 is 8, 4 is 16.
-            var bits = p.Length * 4;
-            rgb[i] = (byte)(v >> Math.Max(0, bits - 8));
+            // X11 scales each channel so its width's max maps to 0xff: 1-digit 'f'
+            // -> 0xff (not 0x0f), 4-digit 0xffff -> 0xff, etc. Scale proportionally
+            // with rounding rather than a bare right-shift.
+            var max = (1u << (p.Length * 4)) - 1;
+            rgb[i] = (byte)(((v * 255) + (max / 2)) / max);
         }
         color = 0xFF000000u | ((uint)rgb[0] << 16) | ((uint)rgb[1] << 8) | rgb[2];
         return true;

@@ -34,6 +34,11 @@ public class TerminalControl : Control, IPaneTerminal
     readonly VtParser parser;
     readonly object bufferLock = new();
 
+    // Serializes all writes to the PTY input pipe. SendToPty (UI thread) and
+    // RespondToPty (PTY read thread) can fire concurrently; without this their
+    // async write/flush pairs could interleave and corrupt the byte stream.
+    readonly SemaphoreSlim ptyWriteLock = new(1, 1);
+
     ConPtyConnection? pty;
     CancellationTokenSource? readCts;
     Task? readTask;
@@ -906,6 +911,7 @@ public class TerminalControl : Control, IPaneTerminal
             return;
         }
 
+        await ptyWriteLock.WaitAsync();
         try
         {
             await connection.Input.WriteAsync(data);
@@ -914,6 +920,10 @@ public class TerminalControl : Control, IPaneTerminal
         catch (Exception ex)
         {
             notifications.Show("Terminal Error", ex.Message, NotificationSeverity.Error);
+        }
+        finally
+        {
+            ptyWriteLock.Release();
         }
     }
 
@@ -929,6 +939,7 @@ public class TerminalControl : Control, IPaneTerminal
             parser.ActiveBuffer.ScrollToBottom();
         }
 
+        await ptyWriteLock.WaitAsync();
         try
         {
             await pty.Input.WriteAsync(data);
@@ -937,6 +948,10 @@ public class TerminalControl : Control, IPaneTerminal
         catch (Exception ex)
         {
             notifications.Show("Input Error", ex.Message, NotificationSeverity.Error);
+        }
+        finally
+        {
+            ptyWriteLock.Release();
         }
     }
 

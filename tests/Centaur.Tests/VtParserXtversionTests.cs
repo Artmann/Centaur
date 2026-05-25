@@ -1,3 +1,4 @@
+using System.Reflection;
 using Centaur.Core.Terminal;
 using Xunit;
 
@@ -14,6 +15,25 @@ public class VtParserXtversionTests
     readonly VtParser parser;
     readonly List<string> responses;
 
+    // The reported version is tied to the assembly build version (set in
+    // Directory.Build.props) rather than a hardcoded literal, so it can't drift.
+    // Derive the same value here instead of duplicating the version number.
+    static readonly string expectedReply = $"\x1bP>|Centaur({ResolveVersion()})\x1b\\";
+
+    static string ResolveVersion()
+    {
+        var info = typeof(VtParser)
+            .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+        if (!string.IsNullOrEmpty(info))
+        {
+            var plus = info.IndexOf('+', System.StringComparison.Ordinal);
+            return plus >= 0 ? info[..plus] : info;
+        }
+        var version = typeof(VtParser).Assembly.GetName().Version;
+        return version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "0.0.0";
+    }
+
     public VtParserXtversionTests()
     {
         var theme = CatppuccinThemes.Macchiato;
@@ -26,13 +46,13 @@ public class VtParserXtversionTests
     {
         // CSI > 0 q -> DCS > | Centaur(version) ST.
         parser.Send("\x1b[>0q");
-        Assert.Equal("\x1bP>|Centaur(0.1.0)\x1b\\", Assert.Single(responses));
+        Assert.Equal(expectedReply, Assert.Single(responses));
     }
 
     [Fact]
     public void Xtversion_NoParam_StillReplies()
     {
         parser.Send("\x1b[>q");
-        Assert.Equal("\x1bP>|Centaur(0.1.0)\x1b\\", Assert.Single(responses));
+        Assert.Equal(expectedReply, Assert.Single(responses));
     }
 }

@@ -394,6 +394,17 @@ public class TerminalRenderer : IDisposable
         {
             f.Dispose();
         }
+        // The resolver thread has been joined, so the fallback cache is now stable.
+        // Dispose the distinct system typefaces it resolved (skipping the primary
+        // typeface, disposed below) to avoid leaking native handles in long sessions.
+        var disposedFallbacks = new HashSet<SKTypeface>();
+        foreach (var fallback in fallbackTypefaceCache.Values)
+        {
+            if (fallback != null && fallback != typeface && disposedFallbacks.Add(fallback))
+            {
+                fallback.Dispose();
+            }
+        }
         font.Dispose();
         typeface.Dispose();
     }

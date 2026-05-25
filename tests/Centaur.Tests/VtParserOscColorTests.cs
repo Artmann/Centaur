@@ -33,6 +33,24 @@ public class VtParserOscColorTests
     }
 
     [Fact]
+    public void Osc4_SingleHexDigitChannel_ScalesToFullByte()
+    {
+        // X11 allows 1-4 hex digits per channel, each scaled so the max for its
+        // width maps to 0xff. A 1-digit 'f' is 4-bit full intensity and must
+        // become 0xff (nibble replication), not 0x0f.
+        parser.Send("\x1b]4;1;rgb:f/0/0\a");
+        Assert.Equal(0xFFFF0000u, parser.Palette[1]);
+    }
+
+    [Fact]
+    public void Osc4_FourHexDigitChannel_ScalesToEightBits()
+    {
+        // 16-bit channels: ffff -> 0xff, 0000 -> 0x00, 8000 -> ~0x80 (proportional).
+        parser.Send("\x1b]4;2;rgb:ffff/0000/8000\a");
+        Assert.Equal(0xFFFF0080u, parser.Palette[2]);
+    }
+
+    [Fact]
     public void Osc4_QueryPaletteColor_EmitsResponse()
     {
         var responses = TerminalTestHelpers.CaptureResponses(parser);

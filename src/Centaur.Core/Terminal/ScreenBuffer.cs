@@ -174,8 +174,12 @@ public class ScreenBuffer
             }
         }
 
+        // Preserve semantic-prompt marks for surviving rows, mirroring the cell copy.
+        var newMarks = new PromptMark[newRows];
+        Array.Copy(marks, newMarks, copyRows);
+
         cells = newCells;
-        marks = new PromptMark[newRows];
+        marks = newMarks;
         columns = newColumns;
         rows = newRows;
         ScrollOffset = 0;
