@@ -34,6 +34,11 @@ public class TerminalControl : Control, IPaneTerminal
     readonly VtParser parser;
     readonly object bufferLock = new();
 
+    // Serializes all writes to the PTY input pipe. SendToPty (UI thread) and
+    // RespondToPty (PTY read thread) can fire concurrently; without this their
+    // async write/flush pairs could interleave and corrupt the byte stream.
+    readonly SemaphoreSlim ptyWriteLock = new(1, 1);
+
     ConPtyConnection? pty;
     CancellationTokenSource? readCts;
     Task? readTask;
@@ -90,6 +95,12 @@ public class TerminalControl : Control, IPaneTerminal
         // Start with a default size; will resize once we know actual bounds
         initialBuffer = new ScreenBuffer(80, 24, theme);
         parser = new VtParser(initialBuffer, theme);
+
+        // Forward terminal query replies (Device Attributes, DECRQM, OSC color/clipboard)
+        // back to the child process. Without this, capability probes from TUIs such as
+        // Claude Code never get answered, so the app stalls on its startup timeouts before
+        // it will echo input.
+        parser.Respond += RespondToPty;
 
         Focusable = true;
         ClipToBounds = true;
@@ -887,6 +898,35 @@ public class TerminalControl : Control, IPaneTerminal
         }
     }
 
+    // Writes parser-generated protocol replies straight to the child process. Unlike
+    // SendToPty this bypasses the read-only gate (these are automatic responses to the
+    // program's own queries, not user input) and does not scroll the view. Invoked from
+    // the read thread inside parser.Process; the write itself targets the input pipe, not
+    // the buffer, so it does not contend with bufferLock.
+    async void RespondToPty(byte[] data)
+    {
+        var connection = pty;
+        if (connection == null)
+        {
+            return;
+        }
+
+        await ptyWriteLock.WaitAsync();
+        try
+        {
+            await connection.Input.WriteAsync(data);
+            await connection.Input.FlushAsync();
+        }
+        catch (Exception ex)
+        {
+            notifications.Show("Terminal Error", ex.Message, NotificationSeverity.Error);
+        }
+        finally
+        {
+            ptyWriteLock.Release();
+        }
+    }
+
     async void SendToPty(byte[] data)
     {
         if (pty == null || isReadOnly)
@@ -899,6 +939,7 @@ public class TerminalControl : Control, IPaneTerminal
             parser.ActiveBuffer.ScrollToBottom();
         }
 
+        await ptyWriteLock.WaitAsync();
         try
         {
             await pty.Input.WriteAsync(data);
@@ -907,6 +948,10 @@ public class TerminalControl : Control, IPaneTerminal
         catch (Exception ex)
         {
             notifications.Show("Input Error", ex.Message, NotificationSeverity.Error);
+        }
+        finally
+        {
+            ptyWriteLock.Release();
         }
     }
 

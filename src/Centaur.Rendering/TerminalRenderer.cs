@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using Centaur.Core.Terminal;
 using SkiaSharp;
@@ -28,9 +29,21 @@ public class TerminalRenderer : IDisposable
 
     // Font fallback: when the primary typeface lacks a glyph for a codepoint,
     // ask the system font manager for a typeface that has it (e.g. for box-drawing,
-    // dingbats, color emoji). Resolutions are cached per-codepoint; matched typefaces
-    // get their own SKFont sized identically to the primary font.
-    readonly Dictionary<char, SKTypeface?> fallbackTypefaceCache = new();
+    // dingbats, color emoji). The system lookup (SKFontManager.MatchCharacter) is slow
+    // and would freeze the UI thread, so it runs on a background resolver thread; the UI
+    // thread only does the cheap primary-coverage check and reads the cache.
+    //
+    // codepoint -> matched fallback typeface (null = primary covers it, or no match found).
+    // Read on the UI thread, written by the resolver, so it must be concurrent.
+    internal readonly ConcurrentDictionary<char, SKTypeface?> fallbackTypefaceCache = new();
+
+    // Codepoints already queued for background resolution, so each is enqueued at most once.
+    readonly ConcurrentDictionary<char, byte> fallbackPending = new();
+    readonly BlockingCollection<char> fallbackQueue = new();
+    readonly Thread fallbackResolver;
+
+    // Matched typefaces get their own SKFont sized identically to the primary font.
+    // Only ever touched on the UI thread (GetFont), so a plain Dictionary is fine.
     readonly Dictionary<SKTypeface, SKFont> fallbackFontCache = new();
 
     public float cellWidth { get; }
@@ -59,6 +72,13 @@ public class TerminalRenderer : IDisposable
         cellWidth = font.MeasureText("M");
         cellHeight = fontSize * 1.2f;
         textYOffset = cellHeight - (cellHeight - font.Size) / 2;
+
+        fallbackResolver = new Thread(ResolveFallbacksLoop)
+        {
+            IsBackground = true,
+            Name = "font-fallback-resolver",
+        };
+        fallbackResolver.Start();
     }
 
     public void Render(
@@ -269,9 +289,50 @@ public class TerminalRenderer : IDisposable
             return cached;
         }
 
-        var resolved = font.GetGlyph(c) != 0 ? null : SKFontManager.Default.MatchCharacter(c);
-        fallbackTypefaceCache[c] = resolved;
-        return resolved;
+        // Cheap, primary-font-only check — never touches SKFontManager.
+        if (font.GetGlyph(c) != 0)
+        {
+            fallbackTypefaceCache[c] = null; // primary font covers it
+            return null;
+        }
+
+        // Not covered: resolve in the background, draw with the primary font for now.
+        // The continuous animation loop repaints once the resolver fills the cache.
+        if (fallbackPending.TryAdd(c, 0))
+        {
+            fallbackQueue.Add(c);
+        }
+        return null;
+    }
+
+    void ResolveFallbacksLoop()
+    {
+        try
+        {
+            foreach (var c in fallbackQueue.GetConsumingEnumerable())
+            {
+                try
+                {
+                    // The first call here also forces SKFontManager.Default's one-time
+                    // system font collection init off the UI thread.
+                    fallbackTypefaceCache[c] = SKFontManager.Default.MatchCharacter(c);
+                }
+                catch
+                {
+                    // Give up gracefully on this codepoint; it draws with the primary
+                    // font (tofu), which is the visible signal that no glyph was found.
+                    fallbackTypefaceCache[c] = null;
+                }
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // Queue disposed during shutdown — expected.
+        }
+        catch (InvalidOperationException)
+        {
+            // GetConsumingEnumerable after CompleteAdding — expected on shutdown.
+        }
     }
 
     SKFont GetFont(SKTypeface? tf)
@@ -321,6 +382,9 @@ public class TerminalRenderer : IDisposable
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+        fallbackQueue.CompleteAdding();
+        fallbackResolver.Join(TimeSpan.FromSeconds(1));
+        fallbackQueue.Dispose();
         blobBuilder.Dispose();
         textPaint.Dispose();
         backgroundPaint.Dispose();
@@ -329,6 +393,17 @@ public class TerminalRenderer : IDisposable
         foreach (var f in fallbackFontCache.Values)
         {
             f.Dispose();
+        }
+        // The resolver thread has been joined, so the fallback cache is now stable.
+        // Dispose the distinct system typefaces it resolved (skipping the primary
+        // typeface, disposed below) to avoid leaking native handles in long sessions.
+        var disposedFallbacks = new HashSet<SKTypeface>();
+        foreach (var fallback in fallbackTypefaceCache.Values)
+        {
+            if (fallback != null && fallback != typeface && disposedFallbacks.Add(fallback))
+            {
+                fallback.Dispose();
+            }
         }
         font.Dispose();
         typeface.Dispose();

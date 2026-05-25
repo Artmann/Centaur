@@ -1,10 +1,23 @@
 namespace Centaur.Core.Terminal;
 
-public record Cell(
-    char character = ' ',
-    uint foreground = 0xFFFFFFFF,
-    uint background = 0xFF000000
-);
+public record Cell(char character = ' ', uint foreground = 0xFFFFFFFF, uint background = 0xFF000000)
+{
+    public bool bold { get; init; }
+    public bool faint { get; init; }
+    public bool italic { get; init; }
+    public UnderlineStyle underline { get; init; }
+
+    // Underline color as ARGB; 0 is the sentinel meaning "inherit the foreground".
+    public uint underlineColor { get; init; }
+    public bool blink { get; init; }
+    public bool inverse { get; init; }
+    public bool invisible { get; init; }
+    public bool strikethrough { get; init; }
+    public bool overline { get; init; }
+
+    // Active OSC 8 hyperlink target, or null when the cell is not part of a link.
+    public string? hyperlink { get; init; }
+}
 
 public class ScreenBuffer
 {
@@ -18,6 +31,9 @@ public class ScreenBuffer
     public int ScrollbackCount => scrollback?.Count ?? 0;
 
     Cell[] cells;
+
+    // Semantic-prompt mark per row (OSC 133). Indexed by row.
+    PromptMark[] marks;
     readonly Cell defaultCell;
     readonly ScrollbackBuffer? scrollback;
 
@@ -45,6 +61,7 @@ public class ScreenBuffer
         }
 
         cells = new Cell[columns * rows];
+        marks = new PromptMark[rows];
         scrollTop = 0;
         scrollBottom = rows - 1;
 
@@ -64,6 +81,17 @@ public class ScreenBuffer
     }
 
     public ReadOnlySpan<Cell> GetRow(int y) => cells.AsSpan(y * columns, columns);
+
+    public PromptMark GetMark(int row) =>
+        row >= 0 && row < marks.Length ? marks[row] : PromptMark.None;
+
+    public void SetMark(int row, PromptMark mark)
+    {
+        if (row >= 0 && row < marks.Length)
+        {
+            marks[row] = mark;
+        }
+    }
 
     public ScreenBuffer Snapshot()
     {
@@ -146,7 +174,12 @@ public class ScreenBuffer
             }
         }
 
+        // Preserve semantic-prompt marks for surviving rows, mirroring the cell copy.
+        var newMarks = new PromptMark[newRows];
+        Array.Copy(marks, newMarks, copyRows);
+
         cells = newCells;
+        marks = newMarks;
         columns = newColumns;
         rows = newRows;
         ScrollOffset = 0;
