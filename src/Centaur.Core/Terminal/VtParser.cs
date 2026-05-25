@@ -22,7 +22,6 @@ public class VtParser
     bool currentOverline;
 
     // DEC Private Mode state
-    bool isPrivateMode;
     public bool CursorVisible { get; private set; } = true;
     public bool ApplicationCursorKeys { get; private set; }
     public bool BracketedPasteMode { get; private set; }
@@ -279,7 +278,6 @@ public class VtParser
                 csiParamIsColon.Clear();
                 pendingColon = false;
                 currentParam = 0;
-                isPrivateMode = false;
                 csiPrefix = '\0';
                 csiIntermediate = '\0';
                 break;
@@ -353,10 +351,6 @@ public class VtParser
         {
             // Private parameter prefix: '<' '=' '>' '?'
             csiPrefix = (char)b;
-            if (b == '?')
-            {
-                isPrivateMode = true;
-            }
             state = State.CsiParam;
         }
         else if (b >= 0x20 && b <= 0x2F)
@@ -381,6 +375,15 @@ public class VtParser
 
     void ExecuteCsi(char command)
     {
+        // Private/prefixed CSI ( '<' '=' '>' '?' ) must not fall through to the ANSI
+        // cursor/SGR handlers. Kitty-keyboard 'CSI > u' / 'CSI < u' / 'CSI = u' and
+        // XTMODKEYS 'CSI > m' would otherwise hijack RCP/SGR and move the cursor.
+        if (csiPrefix != '\0')
+        {
+            ExecutePrivateCsi(command);
+            return;
+        }
+
         int Param(int index, int defaultValue = 1) =>
             index < csiParams.Count && csiParams[index] > 0 ? csiParams[index] : defaultValue;
 
@@ -447,21 +450,11 @@ public class VtParser
             case 'm': // SGR - Select Graphic Rendition
                 HandleSgr();
                 break;
-            case 'c': // DA - Device Attributes
+            case 'c': // DA1 - primary Device Attributes (unprefixed)
                 HandleDeviceAttributes();
                 break;
-            case 'p': // DECRQM - Request Mode (CSI ? Ps $ p)
-                if (csiIntermediate == '$' && isPrivateMode)
-                {
-                    HandleDecrqm();
-                }
-                break;
-            case 'h': // SM - Set Mode
-            case 'l': // RM - Reset Mode
-                if (isPrivateMode)
-                {
-                    ExecuteDecMode(command);
-                }
+            case 'n': // DSR - Device Status Report
+                HandleDeviceStatus();
                 break;
             case 's': // SCP - Save Cursor Position (ANSI)
                 SaveCursor();
@@ -478,6 +471,39 @@ public class VtParser
                 buffer.cursorY = 0;
                 break;
             }
+        }
+    }
+
+    // Dispatch a CSI sequence that carried a private prefix ('<' '=' '>' '?').
+    // Only the prefix-aware commands act; everything else (notably Kitty-keyboard
+    // 'u', XTMODKEYS 'm', DSR 'n', prefixed 's') is ignored so it cannot reach the
+    // ANSI cursor/SGR handlers.
+    void ExecutePrivateCsi(char command)
+    {
+        switch (command)
+        {
+            case 'c': // DA2 ('>') / DA3 ('=')
+                HandleDeviceAttributes();
+                break;
+            case 'h': // SM - Set Mode (DEC private)
+            case 'l': // RM - Reset Mode (DEC private)
+                if (csiPrefix == '?')
+                {
+                    ExecuteDecMode(command);
+                }
+                break;
+            case 'p': // DECRQM - Request Mode (CSI ? Ps $ p)
+                if (csiPrefix == '?' && csiIntermediate == '$')
+                {
+                    HandleDecrqm();
+                }
+                break;
+            case 'q': // XTVERSION - report terminal name/version (CSI > q)
+                if (csiPrefix == '>' && csiIntermediate == '\0')
+                {
+                    Reply("\x1bP>|Centaur(0.1.0)\x1b\\");
+                }
+                break;
         }
     }
 
@@ -552,6 +578,20 @@ public class VtParser
                 break;
             default: // DA1 - primary: VT220 (62) + ansi color (22)
                 Reply("\x1b[?62;22c");
+                break;
+        }
+    }
+
+    void HandleDeviceStatus()
+    {
+        var request = csiParams.Count > 0 ? csiParams[0] : 0;
+        switch (request)
+        {
+            case 5: // Report device status: terminal is functioning correctly.
+                Reply("\x1b[0n");
+                break;
+            case 6: // CPR - report cursor position as 1-based row;col.
+                Reply($"\x1b[{buffer.cursorY + 1};{buffer.cursorX + 1}R");
                 break;
         }
     }
