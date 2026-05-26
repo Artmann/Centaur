@@ -16,7 +16,8 @@ static class RenderProbe
     public static SKBitmap RenderToBitmap(
         ScreenBuffer buffer,
         TerminalRenderer renderer,
-        bool cursorVisible = true
+        bool cursorVisible = true,
+        IReadOnlyList<IRenderOverlay>? overlays = null
     )
     {
         var width = (int)Math.Ceiling(buffer.columns * renderer.cellWidth);
@@ -24,7 +25,7 @@ static class RenderProbe
 
         var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888));
         using var canvas = new SKCanvas(bitmap);
-        renderer.Render(canvas, buffer, width, cursorVisible: cursorVisible);
+        renderer.Render(canvas, buffer, width, overlays: overlays, cursorVisible: cursorVisible);
         return bitmap;
     }
 

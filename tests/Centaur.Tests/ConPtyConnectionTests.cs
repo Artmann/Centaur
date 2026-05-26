@@ -69,4 +69,20 @@ public class ConPtyConnectionTests
 
         Assert.True(true);
     }
+
+    [Fact]
+    public async Task DisposeAsync_CompletesPromptly_WhileShellRunning()
+    {
+        // The output pump reads with a blocking ReadFile that the cancellation token cannot
+        // interrupt; teardown must close the read handle to unblock it. Guard against a hang:
+        // disposing while the shell is still alive must finish well within a few seconds.
+        var options = new PtyOptions(executable: "powershell.exe", columns: 80, rows: 24);
+        var pty = await ConPtyConnection.CreateAsync(options);
+
+        var dispose = pty.DisposeAsync().AsTask();
+        var finished = await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromSeconds(3)));
+
+        Assert.True(ReferenceEquals(dispose, finished), "DisposeAsync did not complete in time");
+        await dispose;
+    }
 }

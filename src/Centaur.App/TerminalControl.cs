@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
@@ -45,6 +46,12 @@ public class TerminalControl : Control, IPaneTerminal
     bool isAttached;
     bool ptyStarted;
 
+    // Keystroke→pixel latency instrumentation
+    readonly LatencyProbe latencyProbe;
+
+    // Predictive local echo
+    readonly PredictionState predictionState;
+
     // Suggestion state
     readonly SuggestionState suggestionState;
     ISuggestionProvider? suggestionProvider;
@@ -80,6 +87,8 @@ public class TerminalControl : Control, IPaneTerminal
     {
         host = App.Services.GetRequiredService<ExtensionHost>();
         notifications = App.Services.GetRequiredService<INotificationService>();
+        latencyProbe = App.Services.GetRequiredService<LatencyProbe>();
+        predictionState = App.Services.GetRequiredService<PredictionState>();
         suggestionState = App.Services.GetRequiredService<SuggestionState>();
         commandHistory = App.Services.GetRequiredService<CommandHistory>();
         reverseSearchState = App.Services.GetRequiredService<ReverseSearchState>();
@@ -101,6 +110,8 @@ public class TerminalControl : Control, IPaneTerminal
         // Claude Code never get answered, so the app stalls on its startup timeouts before
         // it will echo input.
         parser.Respond += RespondToPty;
+
+        predictionState.SetEnabled(settings.PredictiveEcho);
 
         Focusable = true;
         ClipToBounds = true;
@@ -343,6 +354,9 @@ public class TerminalControl : Control, IPaneTerminal
                 var result = await pty.Output.ReadAsync(ct);
                 var ptyBuffer = result.Buffer;
 
+                int realCol,
+                    realRow;
+                bool altScreen;
                 lock (bufferLock)
                 {
                     foreach (var segment in ptyBuffer)
@@ -354,6 +368,21 @@ public class TerminalControl : Control, IPaneTerminal
                     {
                         promptEndCol = parser.ActiveBuffer.cursorX;
                     }
+
+                    realCol = parser.ActiveBuffer.cursorX;
+                    realRow = parser.ActiveBuffer.cursorY;
+                    altScreen = parser.IsAlternateScreen;
+                }
+
+                // Reconcile predictions against the real cursor (ground truth). Takes only the
+                // prediction lock — never nested with bufferLock above.
+                predictionState.Reconcile(realCol, realRow, altScreen, Stopwatch.GetTimestamp());
+
+                // Fresh output reached the buffer — signal the latency probe so the overlay can
+                // measure the keystroke→pixel round-trip on the next frame.
+                if (!ptyBuffer.IsEmpty)
+                {
+                    latencyProbe.Bump();
                 }
 
                 pty.Output.AdvanceTo(ptyBuffer.End);
@@ -710,6 +739,18 @@ public class TerminalControl : Control, IPaneTerminal
         if (bytes != null)
         {
             SendToPty(bytes);
+            // Backspace echoes like a printable key — predict the erase and time its round-trip.
+            // Every other raw byte sequence (Enter, arrows, Tab, Esc, function keys, Ctrl-combos)
+            // invalidates an in-flight prediction run.
+            if (e.Key == Key.Back && e.KeyModifiers == KeyModifiers.None)
+            {
+                PredictBackspaceKey();
+                host.Events.Publish(new KeystrokeSentEvent(Stopwatch.GetTimestamp()));
+            }
+            else
+            {
+                predictionState.ClearAll();
+            }
             e.Handled = true;
         }
     }
@@ -726,8 +767,75 @@ public class TerminalControl : Control, IPaneTerminal
         awaitingPrompt = false;
         var bytes = Encoding.UTF8.GetBytes(e.Text);
         SendToPty(bytes);
+        PredictTypedText(e.Text);
+        // Mark the moment this keystroke left for the shell so the FPS overlay can time the
+        // echo round-trip when the parsed output bumps the latency probe.
+        host.Events.Publish(new KeystrokeSentEvent(Stopwatch.GetTimestamp()));
         UpdateSuggestion(e.Text);
         e.Handled = true;
+    }
+
+    // Predictive local echo: speculatively draw a typed character before the shell echoes it.
+    // Conservative guardrails — any uncertainty clears the run and falls back to real echo.
+    void PredictTypedText(string text)
+    {
+        if (!settings.PredictiveEcho)
+        {
+            return;
+        }
+
+        if (
+            reverseSearchActive
+            || settingsActive
+            || parser.IsAlternateScreen
+            || parser.BracketedPasteMode
+            || !parser.CursorVisible
+            || text.Length != 1
+            || text[0] < 0x20
+            || text[0] == 0x7F
+        )
+        {
+            predictionState.ClearAll();
+            return;
+        }
+
+        int startCol,
+            row,
+            columns;
+        lock (bufferLock)
+        {
+            startCol = parser.ActiveBuffer.cursorX;
+            row = parser.ActiveBuffer.cursorY;
+            columns = parser.ActiveBuffer.columns;
+        }
+        predictionState.PredictType(text[0], row, startCol, columns);
+    }
+
+    void PredictBackspaceKey()
+    {
+        if (!settings.PredictiveEcho)
+        {
+            return;
+        }
+
+        if (
+            reverseSearchActive
+            || settingsActive
+            || parser.IsAlternateScreen
+            || parser.BracketedPasteMode
+            || !parser.CursorVisible
+        )
+        {
+            predictionState.ClearAll();
+            return;
+        }
+
+        int row;
+        lock (bufferLock)
+        {
+            row = parser.ActiveBuffer.cursorY;
+        }
+        predictionState.PredictBackspace(row);
     }
 
     string ExtractUserInput()
@@ -839,6 +947,7 @@ public class TerminalControl : Control, IPaneTerminal
         {
             settingsOverlay = new SettingsOverlay(settings);
             settingsOverlay.CloseRequested += CloseSettings;
+            settingsOverlay.PredictiveEchoChanged += enabled => predictionState.SetEnabled(enabled);
 
             if (Parent is Panel panel)
             {
@@ -854,6 +963,7 @@ public class TerminalControl : Control, IPaneTerminal
     {
         settingsOverlay?.Hide();
         settingsActive = false;
+        predictionState.SetEnabled(settings.PredictiveEcho);
         Focus();
     }
 
@@ -1021,7 +1131,7 @@ public class TerminalControl : Control, IPaneTerminal
                 renderer,
                 GetNormalizedSelection(),
                 overlays,
-                cursorVisible: cursorVis,
+                cursorVisible: cursorVis && !predictionState.HasPending,
                 readOnly: isReadOnly
             )
         );
