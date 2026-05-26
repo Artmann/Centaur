@@ -15,7 +15,7 @@ public class ConPtyConnection : IPtyConnection
     SafeFileHandle? pipeToShellWrite;
     SafeFileHandle? pipeFromShellRead;
     CancellationTokenSource? cts;
-    Task? outputPumpTask;
+    Thread? outputPumpThread;
     Task? inputPumpTask;
     Task? processMonitorTask;
 
@@ -184,14 +184,21 @@ public class ConPtyConnection : IPtyConnection
             Marshal.FreeHGlobal(startupInfo.lpAttributeList);
         }
 
-        // Start data pump tasks
+        // Start data pumps. The output pump runs on a dedicated thread doing a blocking
+        // ReadFile so echoed bytes are picked up the instant the shell writes them (no poll
+        // delay); the input/monitor pumps stay on the thread pool since they await cleanly.
         cts = new CancellationTokenSource();
-        outputPumpTask = Task.Run(() => OutputPumpAsync(cts.Token));
+        outputPumpThread = new Thread(OutputPumpLoop)
+        {
+            IsBackground = true,
+            Name = "conpty-output-pump",
+        };
+        outputPumpThread.Start();
         inputPumpTask = Task.Run(() => InputPumpAsync(cts.Token));
         processMonitorTask = Task.Run(() => ProcessMonitorAsync(cts.Token));
     }
 
-    async Task OutputPumpAsync(CancellationToken ct)
+    void OutputPumpLoop()
     {
         if (pipeFromShellRead == null)
         {
@@ -203,36 +210,17 @@ public class ConPtyConnection : IPtyConnection
 
         try
         {
-            while (!ct.IsCancellationRequested)
+            while (true)
             {
-                // Check if data is available
-                if (
-                    !NativeMethods.PeekNamedPipe(
-                        handle,
-                        null,
-                        0,
-                        IntPtr.Zero,
-                        out var available,
-                        IntPtr.Zero
-                    )
-                )
-                {
-                    // Pipe error - likely closed
-                    break;
-                }
-
-                if (available == 0)
-                {
-                    await Task.Delay(10, ct);
-                    continue;
-                }
-
-                // Read available data
+                // Blocking read: returns the moment the shell writes, with zero polling
+                // latency. ReadFile cannot observe the cancellation token; during teardown
+                // DisposeAsync closes this handle, which makes the in-flight ReadFile return
+                // false and breaks the loop.
                 if (
                     !NativeMethods.ReadFile(
                         handle,
                         buffer,
-                        Math.Min(buffer.Length, available),
+                        buffer.Length,
                         out var bytesRead,
                         IntPtr.Zero
                     )
@@ -246,17 +234,22 @@ public class ConPtyConnection : IPtyConnection
                     break;
                 }
 
-                await outputPipe.Writer.WriteAsync(
-                    new ReadOnlyMemory<byte>(buffer, 0, bytesRead),
-                    ct
-                );
+                // Hand off to the pipe synchronously; pipe backpressure correctly blocks
+                // this dedicated thread when the reader falls behind.
+                outputPipe
+                    .Writer.WriteAsync(new ReadOnlyMemory<byte>(buffer, 0, bytesRead))
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult();
             }
         }
-        catch (OperationCanceledException) { }
-        catch { }
+        catch
+        {
+            // A broken/disposed pipe during teardown is the normal exit — nothing to report.
+        }
         finally
         {
-            await outputPipe.Writer.CompleteAsync();
+            outputPipe.Writer.Complete();
         }
     }
 
@@ -278,14 +271,11 @@ public class ConPtyConnection : IPtyConnection
 
                 foreach (var segment in buffer)
                 {
+                    // This pump already runs on its own background task, so write synchronously
+                    // inline — wrapping each segment in a Task.Run only added a thread hop (and
+                    // thus latency) to every keystroke.
                     var data = segment.ToArray();
-                    await Task.Run(
-                        () =>
-                        {
-                            NativeMethods.WriteFile(handle, data, data.Length, out _, IntPtr.Zero);
-                        },
-                        ct
-                    );
+                    NativeMethods.WriteFile(handle, data, data.Length, out _, IntPtr.Zero);
                 }
 
                 inputPipe.Reader.AdvanceTo(buffer.End);
@@ -368,14 +358,7 @@ public class ConPtyConnection : IPtyConnection
         GC.SuppressFinalize(this);
         cts?.Cancel();
 
-        if (outputPumpTask != null)
-        {
-            try
-            {
-                await outputPumpTask;
-            }
-            catch { }
-        }
+        // The input/monitor pumps await on the cancellation token, so they stop on their own.
         if (inputPumpTask != null)
         {
             try
@@ -393,18 +376,29 @@ public class ConPtyConnection : IPtyConnection
             catch { }
         }
 
+        // Unblock the output pump, which can't observe the token. It is parked in one of two
+        // places: a WriteAsync stalled because nobody is draining outputPipe, or a blocking
+        // ReadFile. Completing the reader frees a stalled WriteAsync. For the blocking ReadFile,
+        // closing our *read* handle does NOT reliably wake it (an anonymous-pipe ReadFile only
+        // returns on data or when every *write* handle is closed) — so we tear down the
+        // pseudoconsole, which makes conhost close the pipe's write end and the ReadFile then
+        // returns false. With both done the loop exits, so the bounded join won't time out (and
+        // IsBackground guarantees a stuck thread can never block process exit regardless).
         await outputPipe.Reader.CompleteAsync();
+        if (hPC != IntPtr.Zero)
+        {
+            NativeMethods.ClosePseudoConsole(hPC);
+            hPC = IntPtr.Zero;
+        }
+        outputPumpThread?.Join(TimeSpan.FromSeconds(2));
+
+        // The pump owns and completes outputPipe.Writer in its finally; these are idempotent.
         await outputPipe.Writer.CompleteAsync();
         await inputPipe.Reader.CompleteAsync();
         await inputPipe.Writer.CompleteAsync();
 
-        if (hPC != IntPtr.Zero)
-        {
-            NativeMethods.ClosePseudoConsole(hPC);
-        }
-
-        pipeToShellWrite?.Dispose();
         pipeFromShellRead?.Dispose();
+        pipeToShellWrite?.Dispose();
         processHandle?.Dispose();
         cts?.Dispose();
     }

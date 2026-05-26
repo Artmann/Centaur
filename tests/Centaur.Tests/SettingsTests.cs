@@ -54,6 +54,29 @@ public class SettingsTests : IDisposable
     }
 
     [Fact]
+    public void PredictiveEcho_DefaultsToFalse()
+    {
+        var settings = new Settings(TempFile("missing.json"));
+        settings.Load();
+
+        Assert.False(settings.PredictiveEcho);
+    }
+
+    [Fact]
+    public void PredictiveEcho_RoundTrips()
+    {
+        var path = TempFile();
+        var settings = new Settings(path);
+        settings.PredictiveEcho = true;
+        settings.Save();
+
+        var loaded = new Settings(path);
+        loaded.Load();
+
+        Assert.True(loaded.PredictiveEcho);
+    }
+
+    [Fact]
     public void GetStartingDirectory_LastFolder_ReturnsLastFolder()
     {
         var settings = new Settings();

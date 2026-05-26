@@ -38,7 +38,11 @@ public partial class App : Application
     {
         services.AddSingleton<ExtensionHost>();
         services.AddSingleton<IThemeProvider, CatppuccinThemeProvider>();
-        services.AddSingleton<IExtension, FpsOverlayExtension>();
+
+        // Keystroke→pixel latency instrumentation, surfaced on the FPS overlay.
+        services.AddSingleton<LatencyProbe>();
+        services.AddSingleton<FpsOverlayExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<FpsOverlayExtension>());
         services.AddSingleton<NotificationServiceExtension>();
         services.AddSingleton<IExtension>(sp =>
             sp.GetRequiredService<NotificationServiceExtension>()
@@ -62,6 +66,11 @@ public partial class App : Application
         services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SuggestionExtension>());
         services.AddSingleton<SuggestionOverlay>();
         services.AddSingleton<IProvider>(sp => sp.GetRequiredService<SuggestionOverlay>());
+
+        // Predictive local echo
+        services.AddSingleton<PredictionState>();
+        services.AddSingleton<PredictionOverlay>();
+        services.AddSingleton<IProvider>(sp => sp.GetRequiredService<PredictionOverlay>());
 
         // Reverse search
         services.AddSingleton<ReverseSearchState>();

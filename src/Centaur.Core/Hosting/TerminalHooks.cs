@@ -21,3 +21,5 @@ public record CommandSubmittedEvent(string Command);
 public record ReverseSearchRequestedEvent;
 
 public record SettingsRequestedEvent;
+
+public record KeystrokeSentEvent(long TimestampTicks);

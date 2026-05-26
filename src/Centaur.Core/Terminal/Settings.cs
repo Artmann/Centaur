@@ -24,6 +24,10 @@ public class Settings
     public string SpecificFolder { get; set; } = "";
     public string LastFolder { get; set; } = "";
 
+    // Mosh-style predictive local echo: draw typed characters instantly before the shell echoes
+    // them. Opt-in (off by default) until proven robust across shells and TUIs.
+    public bool PredictiveEcho { get; set; } = false;
+
     public Settings(string? filePath = null)
     {
         this.filePath = filePath;
@@ -45,6 +49,7 @@ public class Settings
                 StartDirectory = data.StartDirectory;
                 SpecificFolder = data.SpecificFolder ?? "";
                 LastFolder = data.LastFolder ?? "";
+                PredictiveEcho = data.PredictiveEcho;
             }
         }
         catch
@@ -71,6 +76,7 @@ public class Settings
             StartDirectory = StartDirectory,
             SpecificFolder = SpecificFolder,
             LastFolder = LastFolder,
+            PredictiveEcho = PredictiveEcho,
         };
 
         var tempPath = filePath + ".tmp";
@@ -105,5 +111,6 @@ public class Settings
         public StartDirectoryMode StartDirectory { get; set; }
         public string? SpecificFolder { get; set; }
         public string? LastFolder { get; set; }
+        public bool PredictiveEcho { get; set; }
     }
 }

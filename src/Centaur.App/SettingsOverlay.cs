@@ -15,6 +15,11 @@ public class SettingsOverlay : UserControl
     readonly TextBox folderTextBox;
     readonly TextBlock validationText;
     readonly Panel folderInputPanel;
+    readonly Border predictiveEchoRow;
+    readonly TextBlock predictiveEchoIndicator;
+
+    /// <summary>Raised when the predictive-echo toggle changes, so the terminal can apply it live.</summary>
+    public event Action<bool>? PredictiveEchoChanged;
 
     SolidColorBrush? backgroundBrush;
     SolidColorBrush? foregroundBrush;
@@ -95,10 +100,34 @@ public class SettingsOverlay : UserControl
             Margin = new Thickness(0, 0, 0, 12),
         };
 
+        // Input section: predictive echo toggle
+        predictiveEchoIndicator = new TextBlock
+        {
+            FontSize = 14,
+            FontFamily = monoFont,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        predictiveEchoRow = CreateToggleRow(
+            "Predictive echo",
+            "Draw typed characters instantly, before the shell echoes them",
+            predictiveEchoIndicator
+        );
+
+        var inputHeader = new TextBlock
+        {
+            Text = "Input",
+            FontSize = 14,
+            FontWeight = FontWeight.SemiBold,
+            FontFamily = monoFont,
+            Margin = new Thickness(0, 20, 0, 12),
+        };
+
         // Content area
         var contentStack = new StackPanel { Margin = new Thickness(20) };
         contentStack.Children.Add(sectionHeader);
         contentStack.Children.Add(optionsPanel);
+        contentStack.Children.Add(inputHeader);
+        contentStack.Children.Add(predictiveEchoRow);
 
         // Header with title and close button
         var titleText = new TextBlock
@@ -193,6 +222,64 @@ public class SettingsOverlay : UserControl
         return border;
     }
 
+    Border CreateToggleRow(string label, string description, TextBlock indicator)
+    {
+        var labelText = new TextBlock
+        {
+            Text = label,
+            FontSize = 14,
+            FontFamily = monoFont,
+        };
+
+        var descText = new TextBlock
+        {
+            Text = description,
+            FontSize = 11,
+            FontFamily = monoFont,
+            Opacity = 0.6,
+            Margin = new Thickness(0, 2, 0, 0),
+        };
+
+        var stack = new StackPanel();
+        stack.Children.Add(labelText);
+        stack.Children.Add(descText);
+
+        var dock = new DockPanel();
+        DockPanel.SetDock(indicator, Dock.Right);
+        dock.Children.Add(indicator);
+        dock.Children.Add(stack);
+
+        var border = new Border
+        {
+            Padding = new Thickness(16, 10),
+            BorderThickness = new Thickness(3, 0, 0, 0),
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Child = dock,
+        };
+
+        border.PointerPressed += (_, _) => TogglePredictiveEcho();
+
+        return border;
+    }
+
+    void TogglePredictiveEcho()
+    {
+        settings.PredictiveEcho = !settings.PredictiveEcho;
+        settings.Save();
+        UpdateToggleVisual();
+        PredictiveEchoChanged?.Invoke(settings.PredictiveEcho);
+    }
+
+    void UpdateToggleVisual()
+    {
+        var on = settings.PredictiveEcho;
+        predictiveEchoIndicator.Text = on ? "[x] On" : "[ ] Off";
+        predictiveEchoIndicator.Foreground = on ? accentBrush : dimBrush;
+
+        predictiveEchoRow.Background = on ? selectionBrush : Brushes.Transparent;
+        predictiveEchoRow.BorderBrush = on ? accentBrush : Brushes.Transparent;
+    }
+
     void SelectOption(StartDirectoryMode mode)
     {
         settings.StartDirectory = mode;
@@ -210,6 +297,7 @@ public class SettingsOverlay : UserControl
         ApplyTheme(theme);
         folderTextBox.Text = settings.SpecificFolder;
         UpdateSelectionVisual();
+        UpdateToggleVisual();
         ValidateFolderPath();
 
         IsVisible = true;
@@ -306,6 +394,7 @@ public class SettingsOverlay : UserControl
         }
 
         UpdateSelectionVisual();
+        UpdateToggleVisual();
     }
 
     void UpdateSelectionVisual()
