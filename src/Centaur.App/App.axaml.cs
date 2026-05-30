@@ -39,6 +39,9 @@ public partial class App : Application
         services.AddSingleton<ExtensionHost>();
         services.AddSingleton<IThemeProvider, CatppuccinThemeProvider>();
         services.AddSingleton<IExtension, FpsOverlayExtension>();
+        services.AddSingleton<RenderProfiler>();
+        services.AddSingleton<ProfilerOverlayExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<ProfilerOverlayExtension>());
         services.AddSingleton<NotificationServiceExtension>();
         services.AddSingleton<IExtension>(sp =>
             sp.GetRequiredService<NotificationServiceExtension>()

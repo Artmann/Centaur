@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reflection;
 using Centaur.Core.Terminal;
 using SkiaSharp;
@@ -16,6 +17,7 @@ public class TerminalRenderer : IDisposable
     readonly SKTextBlobBuilder blobBuilder = new();
     readonly TerminalTheme theme;
     readonly float textYOffset;
+    readonly RenderProfiler? profiler;
 
     // Pre-allocated buffers to avoid per-frame allocations
     ushort[] glyphBuf = [];
@@ -49,9 +51,14 @@ public class TerminalRenderer : IDisposable
     public float cellWidth { get; }
     public float cellHeight { get; }
 
-    public TerminalRenderer(TerminalTheme theme, float fontSize = 14f)
+    public TerminalRenderer(
+        TerminalTheme theme,
+        float fontSize = 14f,
+        RenderProfiler? profiler = null
+    )
     {
         this.theme = theme;
+        this.profiler = profiler;
         typeface = LoadEmbeddedFont() ?? SKTypeface.Default;
         font = new SKFont(typeface, fontSize);
         font.Subpixel = true;
@@ -91,7 +98,28 @@ public class TerminalRenderer : IDisposable
         bool readOnly = false
     )
     {
+        var profiling = profiler?.Enabled == true;
+        long t0 = 0,
+            t1 = 0,
+            t2 = 0,
+            t3 = 0,
+            t4 = 0,
+            t5 = 0,
+            allocBefore = 0;
+        var gen0Before = 0;
+        if (profiling)
+        {
+            allocBefore = GC.GetAllocatedBytesForCurrentThread();
+            gen0Before = GC.CollectionCount(0);
+            t0 = Stopwatch.GetTimestamp();
+        }
+
         canvas.Clear(new SKColor(theme.Background));
+
+        if (profiling)
+        {
+            t1 = Stopwatch.GetTimestamp();
+        }
 
         var cellCount = buffer.columns * buffer.rows;
         EnsureBuffers(cellCount);
@@ -128,6 +156,11 @@ public class TerminalRenderer : IDisposable
             }
         }
 
+        if (profiling)
+        {
+            t2 = Stopwatch.GetTimestamp();
+        }
+
         // Pass 2: Collect all visible glyphs with positions and colors
         var count = 0;
         for (var y = 0; y < buffer.rows; y++)
@@ -153,10 +186,20 @@ public class TerminalRenderer : IDisposable
             }
         }
 
+        if (profiling)
+        {
+            t3 = Stopwatch.GetTimestamp();
+        }
+
         // Pass 3: Draw glyphs batched by color using SKTextBlob
         if (count > 0)
         {
             DrawGlyphsByColor(canvas, count);
+        }
+
+        if (profiling)
+        {
+            t4 = Stopwatch.GetTimestamp();
         }
 
         // Draw cursor
@@ -204,12 +247,33 @@ public class TerminalRenderer : IDisposable
             DrawReadOnlyBadge(canvas, canvasWidth);
         }
 
+        if (profiling)
+        {
+            t5 = Stopwatch.GetTimestamp();
+        }
+
         if (overlays != null)
         {
             foreach (var overlay in overlays)
             {
                 overlay.Render(canvas, canvasWidth, theme, font, typeface);
             }
+        }
+
+        if (profiling)
+        {
+            var tEnd = Stopwatch.GetTimestamp();
+            profiler!.RecordFrame(
+                clearTicks: t1 - t0,
+                backgroundTicks: t2 - t1,
+                glyphCollectTicks: t3 - t2,
+                glyphDrawTicks: t4 - t3,
+                cursorTicks: t5 - t4,
+                overlayTicks: tEnd - t5,
+                totalTicks: t5 - t0,
+                allocatedBytesDelta: GC.GetAllocatedBytesForCurrentThread() - allocBefore,
+                gen0CollectionsDelta: GC.CollectionCount(0) - gen0Before
+            );
         }
     }
 

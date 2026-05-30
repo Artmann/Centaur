@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
@@ -31,6 +32,7 @@ public class TerminalControl : Control, IPaneTerminal
     readonly TerminalTheme theme;
     readonly ScreenBuffer initialBuffer;
     readonly TerminalRenderer renderer;
+    readonly RenderProfiler profiler;
     readonly VtParser parser;
     readonly object bufferLock = new();
 
@@ -90,7 +92,8 @@ public class TerminalControl : Control, IPaneTerminal
             themeProvider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
             ?? CatppuccinThemes.Macchiato;
 
-        renderer = new TerminalRenderer(theme);
+        profiler = App.Services.GetRequiredService<RenderProfiler>();
+        renderer = new TerminalRenderer(theme, profiler: profiler);
 
         // Start with a default size; will resize once we know actual bounds
         initialBuffer = new ScreenBuffer(80, 24, theme);
@@ -606,6 +609,26 @@ public class TerminalControl : Control, IPaneTerminal
             }
         }
 
+        // Toggle the render profiler (checked before the generic Ctrl block so the
+        // Ctrl+letter -> control-byte conversion below doesn't swallow it).
+        if (
+            e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && e.KeyModifiers.HasFlag(KeyModifiers.Shift)
+            && e.Key == Key.P
+        )
+        {
+            profiler.Enabled = !profiler.Enabled;
+            notifications.Show(
+                "Render Profiler",
+                profiler.Enabled
+                    ? "Profiling ON — overlay + console dump every 2s. Ctrl+Shift+P to stop."
+                    : "Profiling OFF — final summary written to console.",
+                NotificationSeverity.Info
+            );
+            e.Handled = true;
+            return;
+        }
+
         // Handle Ctrl+key combinations
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
@@ -1008,10 +1031,15 @@ public class TerminalControl : Control, IPaneTerminal
         // Snapshot the active buffer under lock so render doesn't block PTY reads
         ScreenBuffer snapshot;
         bool cursorVis;
+        var snapStart = profiler.Enabled ? Stopwatch.GetTimestamp() : 0;
         lock (bufferLock)
         {
             snapshot = parser.ActiveBuffer.Snapshot();
             cursorVis = parser.CursorVisible;
+        }
+        if (profiler.Enabled)
+        {
+            profiler.RecordSnapshot(Stopwatch.GetTimestamp() - snapStart);
         }
 
         context.Custom(
