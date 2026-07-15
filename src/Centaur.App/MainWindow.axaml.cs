@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     const int titleBarHeight = 28;
 
     readonly TabManager tabManager;
+    readonly SessionManager sessionManager;
 
     public MainWindow()
     {
@@ -30,6 +31,12 @@ public partial class MainWindow : Window
         notificationService.SetManager(notificationManager);
 
         tabManager = new TabManager(contentPanel, Close);
+        sessionManager = new SessionManager(
+            this,
+            tabManager,
+            App.Services.GetRequiredService<SessionStore>(),
+            App.Services.GetRequiredService<INotificationService>()
+        );
 
         tabBar.TabSelected += id => tabManager.ActivateTab(id);
         tabBar.NewTabRequested += () => tabManager.CreateTab();
@@ -83,11 +90,12 @@ public partial class MainWindow : Window
         {
             var host = App.Services.GetRequiredService<ExtensionHost>();
             await host.ActivateAsync();
-            tabManager.CreateTab();
+            sessionManager.RestoreTabsOrCreateInitial();
         };
 
         Closed += async (_, _) =>
         {
+            sessionManager.FlushPendingSave();
             var host = App.Services.GetRequiredService<ExtensionHost>();
             await host.DisposeAsync();
         };

@@ -35,25 +35,32 @@ public sealed class SplitPane : PaneNode
     public PaneNode Second { get; set; }
     public Grid GridView { get; }
 
+    public event Action? RatioChanged;
+
     const double gutterThickness = 10;
     const double dividerThickness = 1;
+    const double minRatio = 0.05;
+    const double maxRatio = 0.95;
     static readonly IBrush gutterBrush = new SolidColorBrush(Color.FromRgb(0x24, 0x27, 0x3A));
     static readonly IBrush dividerBrush = new SolidColorBrush(Color.FromRgb(0x1B, 0x1D, 0x2A));
 
-    public SplitPane(Orientation orientation, PaneNode first, PaneNode second)
+    public SplitPane(Orientation orientation, PaneNode first, PaneNode second, double ratio = 0.5)
     {
         Orientation = orientation;
         First = first;
         Second = second;
         GridView = new Grid();
+        var clampedRatio = Math.Clamp(ratio, minRatio, maxRatio);
 
         if (orientation == Orientation.Horizontal)
         {
-            GridView.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
+            GridView.ColumnDefinitions.Add(new ColumnDefinition(clampedRatio, GridUnitType.Star));
             GridView.ColumnDefinitions.Add(
                 new ColumnDefinition(gutterThickness, GridUnitType.Pixel)
             );
-            GridView.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
+            GridView.ColumnDefinitions.Add(
+                new ColumnDefinition(1 - clampedRatio, GridUnitType.Star)
+            );
 
             Grid.SetColumn(first.View, 0);
             Grid.SetColumn(second.View, 2);
@@ -67,6 +74,7 @@ public sealed class SplitPane : PaneNode
                 VerticalAlignment = VerticalAlignment.Stretch,
             };
             Grid.SetColumn(splitter, 1);
+            splitter.DragCompleted += (_, _) => RatioChanged?.Invoke();
 
             var divider = new Border
             {
@@ -85,9 +93,9 @@ public sealed class SplitPane : PaneNode
         }
         else
         {
-            GridView.RowDefinitions.Add(new RowDefinition(1, GridUnitType.Star));
+            GridView.RowDefinitions.Add(new RowDefinition(clampedRatio, GridUnitType.Star));
             GridView.RowDefinitions.Add(new RowDefinition(gutterThickness, GridUnitType.Pixel));
-            GridView.RowDefinitions.Add(new RowDefinition(1, GridUnitType.Star));
+            GridView.RowDefinitions.Add(new RowDefinition(1 - clampedRatio, GridUnitType.Star));
 
             Grid.SetRow(first.View, 0);
             Grid.SetRow(second.View, 2);
@@ -101,6 +109,7 @@ public sealed class SplitPane : PaneNode
                 VerticalAlignment = VerticalAlignment.Stretch,
             };
             Grid.SetRow(splitter, 1);
+            splitter.DragCompleted += (_, _) => RatioChanged?.Invoke();
 
             var divider = new Border
             {
@@ -119,6 +128,22 @@ public sealed class SplitPane : PaneNode
         }
 
         View = GridView;
+    }
+
+    public double ComputeRatio()
+    {
+        var (firstWeight, secondWeight) =
+            Orientation == Orientation.Horizontal
+                ? (
+                    GridView.ColumnDefinitions[0].Width.Value,
+                    GridView.ColumnDefinitions[2].Width.Value
+                )
+                : (
+                    GridView.RowDefinitions[0].Height.Value,
+                    GridView.RowDefinitions[2].Height.Value
+                );
+        var total = firstWeight + secondWeight;
+        return total <= 0 ? 0.5 : Math.Clamp(firstWeight / total, minRatio, maxRatio);
     }
 
     public void PlaceChild(PaneNode child, int cellIndex)
@@ -141,7 +166,7 @@ public sealed class SplitPane : PaneNode
 
 public sealed class PaneTree
 {
-    readonly Func<IPaneTerminal> terminalFactory;
+    readonly Func<string?, IPaneTerminal> terminalFactory;
     PaneNode root;
     LeafPane focusedLeaf;
 
@@ -150,14 +175,18 @@ public sealed class PaneTree
     public LeafPane FocusedLeaf => focusedLeaf;
 
     public event Action? FocusedLeafChanged;
+    public event Action? LayoutChanged;
 
-    public PaneTree(Func<IPaneTerminal> terminalFactory)
+    public PaneTree(
+        Func<string?, IPaneTerminal> terminalFactory,
+        string? initialWorkingDirectory = null
+    )
     {
         this.terminalFactory = terminalFactory;
 
-        var terminal = terminalFactory();
+        var terminal = terminalFactory(initialWorkingDirectory);
         var leaf = new LeafPane(terminal);
-        TrackFocus(leaf);
+        TrackLeaf(leaf);
 
         root = leaf;
         focusedLeaf = leaf;
@@ -169,16 +198,21 @@ public sealed class PaneTree
         return FindLeaf(root, terminal);
     }
 
-    public void Split(LeafPane target, SplitDirection direction)
+    public LeafPane Split(
+        LeafPane target,
+        SplitDirection direction,
+        string? workingDirectory = null,
+        double ratio = 0.5
+    )
     {
         var orientation = direction is SplitDirection.Right or SplitDirection.Left
             ? Orientation.Horizontal
             : Orientation.Vertical;
         var newGoesAfter = direction is SplitDirection.Right or SplitDirection.Down;
 
-        var newTerminal = terminalFactory();
+        var newTerminal = terminalFactory(workingDirectory);
         var newLeaf = new LeafPane(newTerminal);
-        TrackFocus(newLeaf);
+        TrackLeaf(newLeaf);
 
         var parent = FindParent(root, target);
         int parentCell = 0;
@@ -193,8 +227,9 @@ public sealed class PaneTree
         }
 
         var split = newGoesAfter
-            ? new SplitPane(orientation, target, newLeaf)
-            : new SplitPane(orientation, newLeaf, target);
+            ? new SplitPane(orientation, target, newLeaf, ratio)
+            : new SplitPane(orientation, newLeaf, target, ratio);
+        split.RatioChanged += () => LayoutChanged?.Invoke();
 
         if (parent != null)
         {
@@ -216,6 +251,9 @@ public sealed class PaneTree
 
         SetFocusedLeaf(newLeaf);
         newTerminal.Focus();
+        LayoutChanged?.Invoke();
+
+        return newLeaf;
     }
 
     public bool Close(LeafPane target)
@@ -261,6 +299,7 @@ public sealed class PaneTree
             newFocus.Terminal.Focus();
         }
 
+        LayoutChanged?.Invoke();
         return false;
     }
 
@@ -284,9 +323,10 @@ public sealed class PaneTree
         }
     }
 
-    void TrackFocus(LeafPane leaf)
+    void TrackLeaf(LeafPane leaf)
     {
         leaf.Terminal.GotFocus += (_, _) => SetFocusedLeaf(leaf);
+        leaf.Terminal.WorkingDirectoryChanged += () => LayoutChanged?.Invoke();
     }
 
     void SetFocusedLeaf(LeafPane leaf)

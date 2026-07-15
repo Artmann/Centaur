@@ -80,8 +80,17 @@ public class TerminalControl : Control, IPaneTerminal
     // Read-only state (per-pane)
     bool isReadOnly;
 
-    public TerminalControl()
+    readonly string? initialWorkingDirectory;
+    string? workingDirectory;
+
+    public string? WorkingDirectory => workingDirectory;
+
+    public event Action? WorkingDirectoryChanged;
+
+    public TerminalControl(string? initialWorkingDirectory = null)
     {
+        this.initialWorkingDirectory = initialWorkingDirectory;
+        workingDirectory = initialWorkingDirectory;
         host = App.Services.GetRequiredService<ExtensionHost>();
         notifications = App.Services.GetRequiredService<INotificationService>();
         suggestionState = App.Services.GetRequiredService<SuggestionState>();
@@ -304,22 +313,23 @@ public class TerminalControl : Control, IPaneTerminal
                 rows = parser.ActiveBuffer.rows;
             }
 
-            var workingDirectory = settings.GetStartingDirectory();
-            if (workingDirectory != null && !Directory.Exists(workingDirectory))
+            var startingDirectory = initialWorkingDirectory ?? settings.GetStartingDirectory();
+            if (startingDirectory != null && !Directory.Exists(startingDirectory))
             {
                 notifications.Show(
                     "Starting Directory",
-                    $"Directory \"{workingDirectory}\" not found. Using default instead.",
+                    $"Directory \"{startingDirectory}\" not found. Using default instead.",
                     NotificationSeverity.Warning
                 );
-                workingDirectory = null;
+                startingDirectory = null;
             }
+            workingDirectory = startingDirectory;
 
             var options = new PtyOptions(
                 executable: "powershell.exe",
                 columns: cols,
                 rows: rows,
-                workingDirectory: workingDirectory
+                workingDirectory: startingDirectory
             );
 
             pty = await ConPtyConnection.CreateAsync(options);
@@ -921,6 +931,8 @@ public class TerminalControl : Control, IPaneTerminal
         if (Directory.Exists(targetDir))
         {
             settings.UpdateLastFolder(targetDir);
+            workingDirectory = targetDir;
+            WorkingDirectoryChanged?.Invoke();
         }
     }
 
