@@ -33,6 +33,8 @@ public class TerminalControl : Control, IPaneTerminal
     readonly ScreenBuffer initialBuffer;
     readonly TerminalRenderer renderer;
     readonly RenderProfiler profiler;
+    readonly FpsOverlayExtension fpsOverlay;
+    readonly FrameScheduler scheduler = new();
     readonly VtParser parser;
     readonly object bufferLock = new();
 
@@ -93,6 +95,7 @@ public class TerminalControl : Control, IPaneTerminal
             ?? CatppuccinThemes.Macchiato;
 
         profiler = App.Services.GetRequiredService<RenderProfiler>();
+        fpsOverlay = App.Services.GetRequiredService<FpsOverlayExtension>();
         renderer = new TerminalRenderer(theme, profiler: profiler);
 
         // Start with a default size; will resize once we know actual bounds
@@ -166,7 +169,11 @@ public class TerminalControl : Control, IPaneTerminal
         public bool HasSelection => owner.hasSelection;
         public bool IsReadOnly => owner.isReadOnly;
 
-        public void ToggleReadOnly() => owner.isReadOnly = !owner.isReadOnly;
+        public void ToggleReadOnly()
+        {
+            owner.isReadOnly = !owner.isReadOnly;
+            owner.MarkDirty();
+        }
 
         public void Copy() => owner.CopySelectionToClipboard();
 
@@ -209,6 +216,8 @@ public class TerminalControl : Control, IPaneTerminal
             parser.Resize(newCols, newRows);
         }
 
+        MarkDirty();
+
         if (!ptyStarted && isAttached)
         {
             ptyStarted = true;
@@ -227,6 +236,7 @@ public class TerminalControl : Control, IPaneTerminal
         base.OnAttachedToVisualTree(e);
         suggestionProvider = host.GetProvider<ISuggestionProvider>();
         isAttached = true;
+        MarkDirty();
         ScheduleFrame();
         // PTY start is deferred until ArrangeOverride provides the real size
     }
@@ -270,9 +280,17 @@ public class TerminalControl : Control, IPaneTerminal
             return;
         }
 
-        InvalidateVisual();
+        var overlaysSelfUpdating = fpsOverlay.Enabled || profiler.Enabled;
+        if (scheduler.Tick(Stopwatch.GetTimestamp(), overlaysSelfUpdating))
+        {
+            InvalidateVisual();
+        }
         ScheduleFrame();
     }
+
+    // Single entry point for "something visible changed; redraw on the next vsync". Safe to
+    // call from any thread (the PTY read thread is the main off-thread caller).
+    void MarkDirty() => scheduler.MarkDirty();
 
     async void StartPty()
     {
@@ -359,6 +377,10 @@ public class TerminalControl : Control, IPaneTerminal
                     }
                 }
 
+                // PTY bytes can change anything visible — buffer contents, cursor visibility
+                // (DECTCEM), alt-screen swap, scrollback. One flag covers them all.
+                MarkDirty();
+
                 pty.Output.AdvanceTo(ptyBuffer.End);
 
                 if (result.IsCompleted)
@@ -439,6 +461,7 @@ public class TerminalControl : Control, IPaneTerminal
 
         isDragging = true;
 
+        MarkDirty();
         e.Pointer.Capture(this);
         e.Handled = true;
     }
@@ -500,6 +523,7 @@ public class TerminalControl : Control, IPaneTerminal
                 hasSelection = true;
         }
 
+        MarkDirty();
         e.Handled = true;
     }
 
@@ -516,6 +540,7 @@ public class TerminalControl : Control, IPaneTerminal
         if (selectionMode == 0 && col == selAnchorCol && row == selAnchorRow)
             hasSelection = false;
 
+        MarkDirty();
         e.Handled = true;
     }
 
@@ -544,6 +569,7 @@ public class TerminalControl : Control, IPaneTerminal
         }
 
         hasSelection = false;
+        MarkDirty();
         e.Handled = true;
     }
 
@@ -573,6 +599,7 @@ public class TerminalControl : Control, IPaneTerminal
                     parser.ActiveBuffer.ScrollViewUp(parser.ActiveBuffer.rows - 1);
                 }
                 hasSelection = false;
+                MarkDirty();
                 e.Handled = true;
                 return;
             }
@@ -583,6 +610,7 @@ public class TerminalControl : Control, IPaneTerminal
                     parser.ActiveBuffer.ScrollViewDown(parser.ActiveBuffer.rows - 1);
                 }
                 hasSelection = false;
+                MarkDirty();
                 e.Handled = true;
                 return;
             }
@@ -618,6 +646,8 @@ public class TerminalControl : Control, IPaneTerminal
         )
         {
             profiler.Enabled = !profiler.Enabled;
+            // Profiler overlay visibility just toggled; also flips the heartbeat policy.
+            MarkDirty();
             notifications.Show(
                 "Render Profiler",
                 profiler.Enabled
@@ -698,36 +728,7 @@ public class TerminalControl : Control, IPaneTerminal
                 suggestionState.Clear();
             }
 
-            bytes = e.Key switch
-            {
-                Key.Enter => "\r"u8.ToArray(),
-                Key.Back => new byte[] { 0x7F },
-                Key.Tab => "\t"u8.ToArray(),
-                Key.Escape => new byte[] { 0x1B },
-                Key.Up => "\x1b[A"u8.ToArray(),
-                Key.Down => "\x1b[B"u8.ToArray(),
-                Key.Right => "\x1b[C"u8.ToArray(),
-                Key.Left => "\x1b[D"u8.ToArray(),
-                Key.Home => "\x1b[H"u8.ToArray(),
-                Key.End => "\x1b[F"u8.ToArray(),
-                Key.Insert => "\x1b[2~"u8.ToArray(),
-                Key.Delete => "\x1b[3~"u8.ToArray(),
-                Key.PageUp => "\x1b[5~"u8.ToArray(),
-                Key.PageDown => "\x1b[6~"u8.ToArray(),
-                Key.F1 => "\x1bOP"u8.ToArray(),
-                Key.F2 => "\x1bOQ"u8.ToArray(),
-                Key.F3 => "\x1bOR"u8.ToArray(),
-                Key.F4 => "\x1bOS"u8.ToArray(),
-                Key.F5 => "\x1b[15~"u8.ToArray(),
-                Key.F6 => "\x1b[17~"u8.ToArray(),
-                Key.F7 => "\x1b[18~"u8.ToArray(),
-                Key.F8 => "\x1b[19~"u8.ToArray(),
-                Key.F9 => "\x1b[20~"u8.ToArray(),
-                Key.F10 => "\x1b[21~"u8.ToArray(),
-                Key.F11 => "\x1b[23~"u8.ToArray(),
-                Key.F12 => "\x1b[24~"u8.ToArray(),
-                _ => null,
-            };
+            bytes = TerminalKeyEncoder.Encode(e.Key, e.KeyModifiers);
         }
 
         if (bytes != null)
@@ -779,6 +780,7 @@ public class TerminalControl : Control, IPaneTerminal
         if (suggestionProvider == null || parser.IsAlternateScreen || awaitingPrompt)
         {
             suggestionState.Clear();
+            MarkDirty();
             return;
         }
 
@@ -810,6 +812,7 @@ public class TerminalControl : Control, IPaneTerminal
         {
             suggestionState.Clear();
         }
+        MarkDirty();
     }
 
     void OpenReverseSearch()
@@ -961,6 +964,7 @@ public class TerminalControl : Control, IPaneTerminal
         {
             parser.ActiveBuffer.ScrollToBottom();
         }
+        MarkDirty();
 
         await ptyWriteLock.WaitAsync();
         try
@@ -1014,6 +1018,7 @@ public class TerminalControl : Control, IPaneTerminal
             await clipboard.SetTextAsync(text);
 
         hasSelection = false;
+        MarkDirty();
     }
 
     TextSelection? GetNormalizedSelection()
