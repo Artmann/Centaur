@@ -1,4 +1,6 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -14,8 +16,15 @@ public class PaneTreeTests
         public Control View { get; } = new Panel();
         public int FocusCalls { get; private set; }
         public bool Closed { get; private set; }
+        public string? WorkingDirectory { get; private set; }
 
         public event EventHandler<GotFocusEventArgs>? GotFocus;
+        public event Action? WorkingDirectoryChanged;
+
+        public FakeTerminal(string? workingDirectory = null)
+        {
+            WorkingDirectory = workingDirectory;
+        }
 
         public bool Focus()
         {
@@ -29,17 +38,28 @@ public class PaneTreeTests
         {
             GotFocus?.Invoke(this, new GotFocusEventArgs());
         }
+
+        public void ChangeWorkingDirectory(string directory)
+        {
+            WorkingDirectory = directory;
+            WorkingDirectoryChanged?.Invoke();
+        }
     }
 
-    static (PaneTree tree, List<FakeTerminal> created) BuildTree()
+    static (PaneTree tree, List<FakeTerminal> created) BuildTree(
+        string? initialWorkingDirectory = null
+    )
     {
         var created = new List<FakeTerminal>();
-        var tree = new PaneTree(() =>
-        {
-            var t = new FakeTerminal();
-            created.Add(t);
-            return t;
-        });
+        var tree = new PaneTree(
+            cwd =>
+            {
+                var t = new FakeTerminal(cwd);
+                created.Add(t);
+                return t;
+            },
+            initialWorkingDirectory
+        );
         return (tree, created);
     }
 
@@ -338,5 +358,135 @@ public class PaneTreeTests
 
         Assert.Same(bottomLeaf, ((SplitPane)tree.Root).Second);
         Assert.Equal(2, Grid.GetColumn(bottomLeaf.View));
+    }
+
+    [AvaloniaFact]
+    public void Constructor_honors_initial_working_directory()
+    {
+        var (tree, created) = BuildTree(@"C:\repo");
+
+        Assert.Equal(@"C:\repo", created[0].WorkingDirectory);
+        Assert.Equal(@"C:\repo", ((LeafPane)tree.Root).Terminal.WorkingDirectory);
+    }
+
+    [AvaloniaFact]
+    public void Split_returns_new_leaf_and_honors_working_directory()
+    {
+        var (tree, created) = BuildTree();
+        var original = (LeafPane)tree.Root;
+
+        var newLeaf = tree.Split(original, SplitDirection.Right, workingDirectory: @"C:\new");
+
+        Assert.Same(newLeaf, ((SplitPane)tree.Root).Second);
+        Assert.Same(created[1], newLeaf.Terminal);
+        Assert.Equal(@"C:\new", created[1].WorkingDirectory);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(Orientation.Horizontal)]
+    [InlineData(Orientation.Vertical)]
+    public void SplitPane_ratio_sizes_star_definitions(Orientation orientation)
+    {
+        var first = new LeafPane(new FakeTerminal());
+        var second = new LeafPane(new FakeTerminal());
+
+        var split = new SplitPane(orientation, first, second, ratio: 0.3);
+
+        if (orientation == Orientation.Horizontal)
+        {
+            Assert.Equal(0.3, split.GridView.ColumnDefinitions[0].Width.Value, 3);
+            Assert.Equal(0.7, split.GridView.ColumnDefinitions[2].Width.Value, 3);
+        }
+        else
+        {
+            Assert.Equal(0.3, split.GridView.RowDefinitions[0].Height.Value, 3);
+            Assert.Equal(0.7, split.GridView.RowDefinitions[2].Height.Value, 3);
+        }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(1.5)]
+    [InlineData(-0.5)]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void SplitPane_clamps_out_of_range_ratios(double ratio)
+    {
+        var first = new LeafPane(new FakeTerminal());
+        var second = new LeafPane(new FakeTerminal());
+
+        var split = new SplitPane(Orientation.Horizontal, first, second, ratio: ratio);
+
+        var firstWeight = split.GridView.ColumnDefinitions[0].Width.Value;
+        Assert.InRange(firstWeight, 0.05, 0.95);
+    }
+
+    [AvaloniaFact]
+    public void SplitPane_RatioChanged_fires_on_splitter_DragCompleted()
+    {
+        var first = new LeafPane(new FakeTerminal());
+        var second = new LeafPane(new FakeTerminal());
+        var split = new SplitPane(Orientation.Horizontal, first, second);
+        var fired = 0;
+        split.RatioChanged += () => fired++;
+        var splitter = split.GridView.Children.OfType<GridSplitter>().Single();
+
+        splitter.RaiseEvent(
+            new VectorEventArgs
+            {
+                RoutedEvent = Thumb.DragCompletedEvent,
+                Vector = new Vector(20, 0),
+            }
+        );
+
+        Assert.Equal(1, fired);
+    }
+
+    [AvaloniaFact]
+    public void PaneTree_LayoutChanged_fires_on_split_and_close()
+    {
+        var (tree, _) = BuildTree();
+        var initial = (LeafPane)tree.Root;
+        var fired = 0;
+        tree.LayoutChanged += () => fired++;
+
+        var newLeaf = tree.Split(initial, SplitDirection.Right);
+        Assert.Equal(1, fired);
+
+        tree.Close(newLeaf);
+        Assert.Equal(2, fired);
+    }
+
+    [AvaloniaFact]
+    public void PaneTree_LayoutChanged_fires_on_leaf_working_directory_change()
+    {
+        var (tree, created) = BuildTree();
+        var fired = 0;
+        tree.LayoutChanged += () => fired++;
+
+        created[0].ChangeWorkingDirectory(@"C:\elsewhere");
+
+        Assert.Equal(1, fired);
+    }
+
+    [AvaloniaFact]
+    public void PaneTree_LayoutChanged_fires_on_ratio_change_of_new_split()
+    {
+        var (tree, _) = BuildTree();
+        var initial = (LeafPane)tree.Root;
+        tree.Split(initial, SplitDirection.Right);
+        var split = (SplitPane)tree.Root;
+        var fired = 0;
+        tree.LayoutChanged += () => fired++;
+        var splitter = split.GridView.Children.OfType<GridSplitter>().Single();
+
+        splitter.RaiseEvent(
+            new VectorEventArgs
+            {
+                RoutedEvent = Thumb.DragCompletedEvent,
+                Vector = new Vector(20, 0),
+            }
+        );
+
+        Assert.Equal(1, fired);
     }
 }

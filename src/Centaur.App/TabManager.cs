@@ -14,62 +14,68 @@ public class TabManager
     public IReadOnlyList<TabItem> Tabs => tabs;
     public int ActiveTabId => activeTabId;
     public event Action? TabsChanged;
+    public event Action? LayoutChanged;
 
     public TabManager(Panel contentPanel, Action closeWindow)
     {
         this.contentPanel = contentPanel;
         this.closeWindow = closeWindow;
+        TabsChanged += () => LayoutChanged?.Invoke();
     }
 
-    public TabItem CreateTab()
+    public TabItem CreateTab(string? title = null, string? initialWorkingDirectory = null)
     {
         TabItem? tab = null;
-        var panes = new PaneTree(() =>
-        {
-            var terminal = new TerminalControl();
-            terminal.SplitRequested += direction =>
+        var panes = new PaneTree(
+            cwd =>
             {
-                if (tab == null)
+                var terminal = new TerminalControl(cwd);
+                terminal.SplitRequested += direction =>
                 {
-                    return;
-                }
-                var leaf = tab.Panes.LeafFor(terminal);
-                if (leaf != null)
+                    if (tab == null)
+                    {
+                        return;
+                    }
+                    var leaf = tab.Panes.LeafFor(terminal);
+                    if (leaf != null)
+                    {
+                        tab.Panes.Split(leaf, direction);
+                    }
+                };
+                terminal.CloseRequested += () =>
                 {
-                    tab.Panes.Split(leaf, direction);
-                }
-            };
-            terminal.CloseRequested += () =>
-            {
-                if (tab == null)
+                    if (tab == null)
+                    {
+                        return;
+                    }
+                    var leaf = tab.Panes.LeafFor(terminal);
+                    if (leaf != null)
+                    {
+                        ClosePane(tab, leaf);
+                    }
+                };
+                terminal.PtyExited += () =>
                 {
-                    return;
-                }
-                var leaf = tab.Panes.LeafFor(terminal);
-                if (leaf != null)
-                {
-                    ClosePane(tab, leaf);
-                }
-            };
-            terminal.PtyExited += () =>
-            {
-                if (tab == null)
-                {
-                    return;
-                }
-                var leaf = tab.Panes.LeafFor(terminal);
-                if (leaf != null)
-                {
-                    ClosePane(tab, leaf);
-                }
-            };
-            return terminal;
-        });
+                    if (tab == null)
+                    {
+                        return;
+                    }
+                    var leaf = tab.Panes.LeafFor(terminal);
+                    if (leaf != null)
+                    {
+                        ClosePane(tab, leaf);
+                    }
+                };
+                return terminal;
+            },
+            initialWorkingDirectory
+        );
+        panes.LayoutChanged += () => LayoutChanged?.Invoke();
 
         tab = new TabItem
         {
             Id = nextId++,
-            Title = $"Terminal {tabs.Count + 1}",
+            Title = title ?? $"Terminal {tabs.Count + 1}",
             Panes = panes,
         };
 

@@ -25,6 +25,7 @@ public partial class App : Application
         ConfigureServices(services);
         Services = services.BuildServiceProvider();
         Services.GetRequiredService<Settings>().Load();
+        Services.GetRequiredService<SessionStore>().Load();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -87,5 +88,14 @@ public partial class App : Application
         ));
         services.AddSingleton<SettingsExtension>();
         services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SettingsExtension>());
+
+        // Session (tabs/panes/window layout persistence)
+        services.AddSingleton(sp => new SessionStore(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Centaur",
+                "session.json"
+            )
+        ));
     }
 }
