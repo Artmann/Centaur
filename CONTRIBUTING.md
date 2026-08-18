@@ -34,6 +34,13 @@ CSharpier is installed as a local dotnet tool. Run `dotnet tool restore` after c
 
 ## Architecture
 
+Full documentation lives in [`docs/`](docs) — architecture reference, RFCs and feature specs.
+Start with [Extensions & Providers](docs/architecture/extensions-and-providers.md) for how
+features are composed via `ExtensionHost`.
+
+- **Extensions & Providers**: Features plug in as `IExtension` (lifecycle: activate/dispose,
+  subscribes to events) or `IProvider` (passive capability, resolved by priority), both managed
+  by `ExtensionHost` and wired up in `App.ConfigureServices()`.
 - **Rendering**: Avalonia uses immediate-mode rendering. Each frame receives a fresh canvas that is not preserved between frames. Custom draw operations must always do full redraws. Timer-based update coalescing (~16ms) batches rapid PTY output into single renders.
 - **PTY**: `ConPtyConnection` wraps the Windows ConPTY API. The `IPtyConnection` interface allows future platform implementations. PTY reads happen on a background thread; buffer updates are protected by `bufferLock`.
 - **VT Parser**: State-machine parser (`VtParser`) handles ANSI/VT100 escape sequences. States: Ground, Escape, CSI, CsiParam.
@@ -44,6 +51,12 @@ CSharpier is installed as a local dotnet tool. Run `dotnet tool restore` after c
 - Don't include Co-Authored-By lines in commit messages
 - Keep rendering logic as full redraws (no incremental/dirty-region rendering)
 - Target .NET 9.0
+
+## Documentation
+
+- [`docs/architecture/`](docs/architecture) — how the code is put together today
+- [`docs/rfcs/`](docs/rfcs) — proposals (`NNN-short-title.md`)
+- [`docs/specs/`](docs/specs) — per-feature designs (`YYYY-MM-DD-short-title.md`)
 
 ## How to Contribute
 

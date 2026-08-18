@@ -60,6 +60,10 @@ cd Centaur
 dotnet run --project src/Centaur.App
 ```
 
+## Documentation
+
+Architecture reference, RFCs and feature specs live in [`docs/`](docs).
+
 ## License
 
 [MIT](LICENSE) — Christoffer Artmann
