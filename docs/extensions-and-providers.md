@@ -2,7 +2,7 @@
 
 How Centaur composes features. This document describes the code as it exists in
 `src/Centaur.Core/Hosting` and its consumers — it is a reference, not a proposal.
-Design proposals live in [`docs/rfcs`](../rfcs), feature designs in [`docs/specs`](../specs).
+Design proposals and feature designs live alongside it in [`docs/`](README.md).
 
 ## 1. Why
 
@@ -293,7 +293,7 @@ implement `IExtension` and the provider interface on one class, register the con
 map each role onto it.
 
 Whatever the shape, failures are user-visible: never swallow an exception, show an
-actionable toast through `INotificationService` instead (see [CLAUDE.md](../../CLAUDE.md)).
+actionable toast through `INotificationService` instead (see [CLAUDE.md](../CLAUDE.md)).
 
 ## 9. Testing
 
