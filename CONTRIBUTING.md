@@ -35,8 +35,8 @@ CSharpier is installed as a local dotnet tool. Run `dotnet tool restore` after c
 ## Architecture
 
 Full documentation lives in [`docs/`](docs) — architecture reference, RFCs and feature specs.
-Start with [Extensions & Providers](docs/architecture/extensions-and-providers.md) for how
-features are composed via `ExtensionHost`.
+Start with [Extensions & Providers](docs/extensions-and-providers.md) for how features are
+composed via `ExtensionHost`.
 
 - **Extensions & Providers**: Features plug in as `IExtension` (lifecycle: activate/dispose,
   subscribes to events) or `IProvider` (passive capability, resolved by priority), both managed
@@ -54,9 +54,11 @@ features are composed via `ExtensionHost`.
 
 ## Documentation
 
-- [`docs/architecture/`](docs/architecture) — how the code is put together today
-- [`docs/rfcs/`](docs/rfcs) — proposals (`NNN-short-title.md`)
-- [`docs/specs/`](docs/specs) — per-feature designs (`YYYY-MM-DD-short-title.md`)
+Everything lives flat in [`docs/`](docs), distinguished by filename:
+
+- `extensions-and-providers.md` and friends — architecture reference
+- `NNN-short-title.md` — RFCs
+- `YYYY-MM-DD-short-title.md` — per-feature specs
 
 ## How to Contribute
 
