@@ -26,9 +26,23 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         host = services.Host;
+        AttachNotifications(notificationService);
 
-        // The notification manager needs a window, so the service cannot be handed one
-        // until now; anything reported before this point is queued and flushed here.
+        tabManager = new TabManager(contentPanel, Close, services);
+        sessionManager = new SessionManager(this, tabManager, sessions, services.Notifications);
+
+        WireTabBar();
+        WireContentMargin();
+        WireTitleBar();
+        WireLifecycle();
+
+        // Intercept tab shortcuts before they reach TerminalControl
+        AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
+    }
+
+    /// <summary>The notification manager needs a window, so the service cannot be handed one
+    /// until now; anything reported before this point is queued and flushed here.</summary>
+    void AttachNotifications(NotificationServiceExtension notificationService) =>
         notificationService.SetManager(
             new WindowNotificationManager(this)
             {
@@ -37,16 +51,20 @@ public partial class MainWindow : Window
             }
         );
 
-        tabManager = new TabManager(contentPanel, Close, services);
-        sessionManager = new SessionManager(this, tabManager, sessions, services.Notifications);
-
+    void WireTabBar()
+    {
         tabBar.TabSelected += id => tabManager.ActivateTab(id);
         tabBar.NewTabRequested += () => tabManager.CreateTab();
         tabBar.TabClosed += id => tabManager.CloseTab(id);
         tabBar.TabRenamed += (id, title) => tabManager.RenameTab(id, title);
         tabBar.TabMoved += (id, newIndex) => tabManager.MoveTab(id, newIndex);
         tabManager.TabsChanged += () => tabBar.Update(tabManager.Tabs, tabManager.ActiveTabId);
+    }
 
+    /// <summary>Keeps the content clear of the title bar and of whatever the window manager
+    /// takes for decorations, which changes as the window is maximized or moved.</summary>
+    void WireContentMargin()
+    {
         UpdateContentMargin();
         PropertyChanged += (_, e) =>
         {
@@ -58,17 +76,18 @@ public partial class MainWindow : Window
                 UpdateContentMargin();
             }
         };
+    }
 
+    /// <summary>The custom title bar: drag to move, double-click and the three buttons.</summary>
+    void WireTitleBar()
+    {
         titleBar.PointerPressed += (_, e) =>
         {
             if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             {
                 if (e.ClickCount == 2)
                 {
-                    WindowState =
-                        WindowState == WindowState.Maximized
-                            ? WindowState.Normal
-                            : WindowState.Maximized;
+                    ToggleMaximized();
                 }
                 else
                 {
@@ -78,16 +97,16 @@ public partial class MainWindow : Window
         };
 
         minimizeButton.Click += (_, _) => WindowState = WindowState.Minimized;
-        maximizeButton.Click += (_, _) =>
-        {
-            WindowState =
-                WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-        };
+        maximizeButton.Click += (_, _) => ToggleMaximized();
         closeButton.Click += (_, _) => Close();
+    }
 
-        // Intercept tab shortcuts before they reach TerminalControl
-        AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
+    void ToggleMaximized() =>
+        WindowState =
+            WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
+    void WireLifecycle()
+    {
         Loaded += async (_, _) =>
         {
             await host.ActivateAsync();

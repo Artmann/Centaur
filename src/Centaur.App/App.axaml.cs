@@ -41,53 +41,11 @@ public partial class App : Application
 
     static void ConfigureServices(IServiceCollection services)
     {
-        services.AddSingleton<ExtensionHost>();
-        services.AddSingleton<IThemeProvider, CatppuccinThemeProvider>();
-        services.AddSingleton<FpsOverlayExtension>();
-        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<FpsOverlayExtension>());
-        services.AddSingleton<RenderProfiler>();
-        services.AddSingleton<ProfilerOverlayExtension>();
-        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<ProfilerOverlayExtension>());
-        services.AddSingleton<NotificationServiceExtension>();
-        services.AddSingleton<IExtension>(sp =>
-            sp.GetRequiredService<NotificationServiceExtension>()
-        );
-        services.AddSingleton<INotificationService>(sp =>
-            sp.GetRequiredService<NotificationServiceExtension>()
-        );
-
-        // Shared command history
-        services.AddSingleton(sp =>
-        {
-            var path = AppDataPath("command-history.json");
-            return new CommandHistory(path, StorageErrorReporter(sp, "command history", path));
-        });
-
-        // Suggestions
-        services.AddSingleton<SuggestionState>();
-        services.AddSingleton<SuggestionExtension>();
-        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SuggestionExtension>());
-        services.AddSingleton<SuggestionOverlay>();
-        services.AddSingleton<IProvider>(sp => sp.GetRequiredService<SuggestionOverlay>());
-
-        // Reverse search
-        services.AddSingleton<ReverseSearchState>();
-        services.AddSingleton<ReverseSearchExtension>();
-        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<ReverseSearchExtension>());
-
-        // Context menu
-        services.AddSingleton<IProvider, ClipboardMenuProvider>();
-        services.AddSingleton<IProvider, ReadOnlyMenuProvider>();
-        services.AddSingleton<IProvider, PaneMenuProvider>();
-
-        // Settings
-        services.AddSingleton(sp =>
-        {
-            var path = AppDataPath("settings.json");
-            return new Settings(path, StorageErrorReporter(sp, "settings", path));
-        });
-        services.AddSingleton<SettingsExtension>();
-        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SettingsExtension>());
+        AddHosting(services);
+        AddOverlays(services);
+        AddHistory(services);
+        AddContextMenu(services);
+        AddSettings(services);
 
         // The bundle every terminal pane is constructed with.
         services.AddSingleton(sp => new TerminalServices
@@ -108,6 +66,66 @@ public partial class App : Application
             var path = AppDataPath("session.json");
             return new SessionStore(path, StorageErrorReporter(sp, "session layout", path));
         });
+    }
+
+    static void AddHosting(IServiceCollection services)
+    {
+        services.AddSingleton<ExtensionHost>();
+        services.AddSingleton<IThemeProvider, CatppuccinThemeProvider>();
+        services.AddSingleton<NotificationServiceExtension>();
+        services.AddSingleton<IExtension>(sp =>
+            sp.GetRequiredService<NotificationServiceExtension>()
+        );
+        services.AddSingleton<INotificationService>(sp =>
+            sp.GetRequiredService<NotificationServiceExtension>()
+        );
+    }
+
+    static void AddOverlays(IServiceCollection services)
+    {
+        services.AddSingleton<FpsOverlayExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<FpsOverlayExtension>());
+        services.AddSingleton<RenderProfiler>();
+        services.AddSingleton<ProfilerOverlayExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<ProfilerOverlayExtension>());
+    }
+
+    /// <summary>Shared command history, and the two features that read from it.</summary>
+    static void AddHistory(IServiceCollection services)
+    {
+        services.AddSingleton(sp =>
+        {
+            var path = AppDataPath("command-history.json");
+            return new CommandHistory(path, StorageErrorReporter(sp, "command history", path));
+        });
+
+        services.AddSingleton<SuggestionState>();
+        services.AddSingleton<SuggestionExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SuggestionExtension>());
+        services.AddSingleton<SuggestionOverlay>();
+        services.AddSingleton<IProvider>(sp => sp.GetRequiredService<SuggestionOverlay>());
+
+        services.AddSingleton<ReverseSearchState>();
+        services.AddSingleton<ReverseSearchExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<ReverseSearchExtension>());
+    }
+
+    static void AddContextMenu(IServiceCollection services)
+    {
+        services.AddSingleton<IProvider, ClipboardMenuProvider>();
+        services.AddSingleton<IProvider, ReadOnlyMenuProvider>();
+        services.AddSingleton<IProvider, PaneMenuProvider>();
+    }
+
+    static void AddSettings(IServiceCollection services)
+    {
+        services.AddSingleton(sp =>
+        {
+            var path = AppDataPath("settings.json");
+            return new Settings(path, StorageErrorReporter(sp, "settings", path));
+        });
+        services.AddSingleton<SettingsExtension>();
+        services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SettingsExtension>());
     }
 
     static string AppDataPath(string fileName)
