@@ -21,12 +21,7 @@ public class ReverseSearchOverlay : UserControl
 
     IReadOnlyList<string> currentCommands = [];
 
-    SolidColorBrush? backgroundBrush;
-    SolidColorBrush? foregroundBrush;
-    SolidColorBrush? dimBrush;
-    SolidColorBrush? accentBrush;
-    SolidColorBrush? selectionBrush;
-    SolidColorBrush? surfaceBrush;
+    OverlayTheme? colors;
 
     public event Action<string>? CommandSelected;
     public event Action? CloseRequested;
@@ -139,61 +134,16 @@ public class ReverseSearchOverlay : UserControl
 
     void ApplyTheme(TerminalTheme theme)
     {
-        backgroundBrush = BrushFromUint(theme.Background);
-        foregroundBrush = BrushFromUint(theme.Foreground);
-        dimBrush = BrushFromUint(theme.Palette[8]); // Bright Black / Surface2 — more readable
-        accentBrush = BrushFromUint(theme.Palette[4]); // Blue
-        selectionBrush = BrushFromUint(theme.Selection);
-        surfaceBrush = BrushFromUint(theme.Palette[0]); // Surface1
+        colors = new OverlayTheme(theme);
 
-        Background = backgroundBrush;
+        Background = colors.Background;
 
-        // Search bar
         searchBarBorder.Background = Brushes.Transparent;
-        searchBox.Foreground = foregroundBrush;
-        searchBox.CaretBrush = accentBrush;
+        searchBarBorder.BorderBrush = colors.Dim;
+        colors.StyleTextBox(searchBox);
 
-        // Override Fluent TextBox theme resources for all states
-        var transparent = Brushes.Transparent;
-        // Override all Fluent TextBox/TextControl resource keys for every state
-        foreach (
-            var key in new[]
-            {
-                "TextBoxBackground",
-                "TextBoxBackgroundPointerOver",
-                "TextBoxBackgroundFocused",
-                "TextBoxBorderBrush",
-                "TextBoxBorderBrushPointerOver",
-                "TextBoxBorderBrushFocused",
-                "TextControlBackground",
-                "TextControlBackgroundPointerOver",
-                "TextControlBackgroundFocused",
-                "TextControlBorderBrush",
-                "TextControlBorderBrushPointerOver",
-                "TextControlBorderBrushFocused",
-            }
-        )
-        {
-            searchBox.Resources[key] = transparent;
-        }
-        foreach (
-            var key in new[]
-            {
-                "TextBoxForeground",
-                "TextBoxForegroundPointerOver",
-                "TextBoxForegroundFocused",
-                "TextControlForeground",
-                "TextControlForegroundPointerOver",
-                "TextControlForegroundFocused",
-            }
-        )
-        {
-            searchBox.Resources[key] = foregroundBrush;
-        }
-        placeholderText.Foreground = BrushFromUint(theme.Foreground, 0.5);
-
-        matchCounter.Foreground = dimBrush;
-        searchBarBorder.BorderBrush = dimBrush;
+        placeholderText.Foreground = colors.Placeholder;
+        matchCounter.Foreground = colors.Dim;
     }
 
     void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
@@ -278,12 +228,12 @@ public class ReverseSearchOverlay : UserControl
                 var run = new Run(item.Command[i].ToString());
                 if (matchedSet.Contains(i))
                 {
-                    run.Foreground = accentBrush;
+                    run.Foreground = colors?.Accent;
                     run.FontWeight = FontWeight.Bold;
                 }
                 else
                 {
-                    run.Foreground = isSelected ? foregroundBrush : dimBrush;
+                    run.Foreground = isSelected ? colors?.Foreground : colors?.Dim;
                 }
                 textBlock.Inlines!.Add(run);
             }
@@ -291,14 +241,14 @@ public class ReverseSearchOverlay : UserControl
         else
         {
             textBlock.Text = item.Command;
-            textBlock.Foreground = isSelected ? foregroundBrush : dimBrush;
+            textBlock.Foreground = isSelected ? colors?.Foreground : colors?.Dim;
         }
 
         return new Border
         {
             Padding = new Thickness(16, 6),
-            Background = isSelected ? selectionBrush : Brushes.Transparent,
-            BorderBrush = isSelected ? accentBrush : Brushes.Transparent,
+            Background = isSelected ? colors?.Selection : Brushes.Transparent,
+            BorderBrush = isSelected ? colors?.Accent : Brushes.Transparent,
             BorderThickness = new Thickness(3, 0, 0, 0),
             Child = textBlock,
         };
@@ -309,7 +259,7 @@ public class ReverseSearchOverlay : UserControl
         return new TextBlock
         {
             Text = message,
-            Foreground = dimBrush,
+            Foreground = colors?.Dim,
             FontSize = 14,
             FontFamily = monoFont,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -328,8 +278,8 @@ public class ReverseSearchOverlay : UserControl
             }
 
             var isSelected = i == state.SelectedIndex;
-            border.Background = isSelected ? selectionBrush : Brushes.Transparent;
-            border.BorderBrush = isSelected ? accentBrush : Brushes.Transparent;
+            border.Background = isSelected ? colors?.Selection : Brushes.Transparent;
+            border.BorderBrush = isSelected ? colors?.Accent : Brushes.Transparent;
 
             if (border.Child is TextBlock tb)
             {
@@ -339,13 +289,13 @@ public class ReverseSearchOverlay : UserControl
                     {
                         if (inline is Run run && run.FontWeight != FontWeight.Bold)
                         {
-                            run.Foreground = isSelected ? foregroundBrush : dimBrush;
+                            run.Foreground = isSelected ? colors?.Foreground : colors?.Dim;
                         }
                     }
                 }
                 else
                 {
-                    tb.Foreground = isSelected ? foregroundBrush : dimBrush;
+                    tb.Foreground = isSelected ? colors?.Foreground : colors?.Dim;
                 }
             }
         }
@@ -368,15 +318,5 @@ public class ReverseSearchOverlay : UserControl
         {
             control.BringIntoView();
         }
-    }
-
-    static SolidColorBrush BrushFromUint(uint color, double opacity = 1.0)
-    {
-        var c = Color.FromUInt32(color);
-        if (opacity < 1.0)
-        {
-            c = Color.FromArgb((byte)(opacity * 255), c.R, c.G, c.B);
-        }
-        return new SolidColorBrush(c);
     }
 }
