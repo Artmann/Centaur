@@ -33,7 +33,7 @@ public class TerminalRendererFallbackTests
 
         // The resolver fills the cache out of band — for primary-covered glyphs it would
         // be filled synchronously, but an uncovered glyph proves the background path runs.
-        var resolved = SpinUntil(() => renderer.fallbackTypefaceCache.ContainsKey(uncoveredGlyph));
+        var resolved = SpinUntil(() => renderer.IsFallbackResolved(uncoveredGlyph));
 
         Assert.True(resolved, "fallback resolver did not populate the cache for the glyph");
     }
