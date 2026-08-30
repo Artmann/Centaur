@@ -38,6 +38,11 @@ public class TerminalControl : Control, IPaneTerminal
     readonly VtParser parser;
     readonly object bufferLock = new();
 
+    // SGR 5/6 blink: cells alternate between drawn and hidden every 500ms, the conventional
+    // period (and the same one the frame scheduler's heartbeat uses).
+    const double blinkHalfPeriodMs = 500;
+    bool blinkVisible = true;
+
     // Serializes all writes to the PTY input pipe. SendToPty (UI thread) and
     // RespondToPty (PTY read thread) can fire concurrently; without this their
     // async write/flush pairs could interleave and corrupt the byte stream.
@@ -287,6 +292,18 @@ public class TerminalControl : Control, IPaneTerminal
         if (!isAttached)
         {
             return;
+        }
+
+        // Advance the blink phase, but only force a repaint when the last frame actually
+        // contained blinking cells — an ordinary terminal must still idle at zero frames.
+        var phase = (long)(timestamp.TotalMilliseconds / blinkHalfPeriodMs) % 2 == 0;
+        if (phase != blinkVisible)
+        {
+            blinkVisible = phase;
+            if (renderer.HasBlinkingCells)
+            {
+                MarkDirty();
+            }
         }
 
         var overlaysSelfUpdating = fpsOverlay.Enabled || profiler.Enabled;
@@ -1067,7 +1084,8 @@ public class TerminalControl : Control, IPaneTerminal
                 GetNormalizedSelection(),
                 overlays,
                 cursorVisible: cursorVis,
-                readOnly: isReadOnly
+                readOnly: isReadOnly,
+                blinkVisible: blinkVisible
             )
         );
     }
@@ -1081,6 +1099,7 @@ public class TerminalControl : Control, IPaneTerminal
         readonly IReadOnlyList<IRenderOverlay> overlays;
         readonly bool cursorVisible;
         readonly bool readOnly;
+        readonly bool blinkVisible;
 
         public TerminalDrawOperation(
             Rect bounds,
@@ -1089,7 +1108,8 @@ public class TerminalControl : Control, IPaneTerminal
             TextSelection? selection,
             IReadOnlyList<IRenderOverlay> overlays,
             bool cursorVisible = true,
-            bool readOnly = false
+            bool readOnly = false,
+            bool blinkVisible = true
         )
         {
             this.bounds = bounds;
@@ -1099,6 +1119,7 @@ public class TerminalControl : Control, IPaneTerminal
             this.overlays = overlays;
             this.cursorVisible = cursorVisible;
             this.readOnly = readOnly;
+            this.blinkVisible = blinkVisible;
         }
 
         public Rect Bounds => bounds;
@@ -1127,7 +1148,8 @@ public class TerminalControl : Control, IPaneTerminal
                 selection,
                 overlays,
                 cursorVisible,
-                readOnly
+                readOnly,
+                blinkVisible
             );
         }
     }

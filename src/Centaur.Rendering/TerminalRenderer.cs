@@ -14,17 +14,30 @@ public class TerminalRenderer : IDisposable
     readonly SKPaint backgroundPaint;
     readonly SKPaint cursorPaint;
     readonly SKPaint readOnlyStrokePaint;
+    readonly SKPaint decorationPaint;
     readonly SKTextBlobBuilder blobBuilder = new();
+
+    // Reused across frames: SKPath.Reset() keeps the allocated segment capacity, so drawing
+    // curly underlines stays inside the renderer's zero-allocation-per-frame budget.
+    readonly SKPath curlyPath = new();
+
     readonly TerminalTheme theme;
     readonly float textYOffset;
     readonly RenderProfiler? profiler;
+
+    // Vertical geometry for underline/strikethrough/overline strokes, relative to the top of a
+    // cell, plus their common thickness. Computed once from the font metrics.
+    readonly float decorationThickness;
+    readonly float underlineOffset;
+    readonly float strikethroughOffset;
+    readonly float overlineOffset;
 
     // Pre-allocated buffers to avoid per-frame allocations
     ushort[] glyphBuf = [];
     SKPoint[] posBuf = [];
     uint[] colorBuf = [];
     bool[] drawnBuf = [];
-    SKTypeface?[] typefaceBuf = [];
+    SKFont[] fontBuf = [];
     ushort[] runGlyphBuf = [];
     SKPoint[] runPosBuf = [];
     int bufferCapacity;
@@ -44,12 +57,26 @@ public class TerminalRenderer : IDisposable
     readonly BlockingCollection<char> fallbackQueue = new();
     readonly Thread fallbackResolver;
 
-    // Matched typefaces get their own SKFont sized identically to the primary font.
+    // One SKFont per (typeface, bold, italic) combination, sized identically to the primary
+    // font. Only JetBrains Mono Regular is embedded, so bold and italic are synthesised via
+    // Embolden/SkewX — that keeps the typeface (and therefore every glyph id) unchanged across
+    // variants, which is what lets a single glyph buffer serve all of them.
     // Only ever touched on the UI thread (GetFont), so a plain Dictionary is fine.
-    readonly Dictionary<SKTypeface, SKFont> fallbackFontCache = new();
+    readonly Dictionary<(SKTypeface? typeface, bool bold, bool italic), SKFont> styledFontCache =
+        new();
+
+    // Horizontal shear applied for synthetic italics: negative leans the top of the glyph right.
+    const float italicSkew = -0.22f;
 
     public float cellWidth { get; }
     public float cellHeight { get; }
+
+    /// <summary>
+    /// True when the last rendered frame contained at least one cell with SGR 5/6 (blink) set.
+    /// The control uses this to keep the frame scheduler's heartbeat running so the blink phase
+    /// keeps advancing on an otherwise idle terminal.
+    /// </summary>
+    public bool HasBlinkingCells { get; private set; }
 
     public TerminalRenderer(
         TerminalTheme theme,
@@ -76,9 +103,22 @@ public class TerminalRenderer : IDisposable
             IsAntialias = true,
         };
 
+        decorationPaint = new SKPaint { IsAntialias = true };
+
         cellWidth = font.MeasureText("M");
         cellHeight = fontSize * 1.2f;
         textYOffset = cellHeight - (cellHeight - font.Size) / 2;
+
+        // Decoration geometry is snapped to whole pixels: a one-pixel line at a fractional y
+        // would otherwise smear into two rows of half-coverage and read as a grey smudge.
+        var metrics = font.Metrics;
+        decorationThickness = MathF.Max(1f, MathF.Round(fontSize / 14f));
+        var belowBaseline = MathF.Max(1f, metrics.UnderlinePosition ?? fontSize * 0.12f);
+        underlineOffset = MathF.Floor(
+            MathF.Min(textYOffset + belowBaseline, cellHeight - decorationThickness)
+        );
+        strikethroughOffset = MathF.Floor(textYOffset - fontSize * 0.3f);
+        overlineOffset = MathF.Floor(MathF.Max(0f, textYOffset + metrics.Ascent));
 
         fallbackResolver = new Thread(ResolveFallbacksLoop)
         {
@@ -95,7 +135,8 @@ public class TerminalRenderer : IDisposable
         TextSelection? selection = null,
         IReadOnlyList<IRenderOverlay>? overlays = null,
         bool cursorVisible = true,
-        bool readOnly = false
+        bool readOnly = false,
+        bool blinkVisible = true
     )
     {
         var profiling = profiler?.Enabled == true;
@@ -161,8 +202,10 @@ public class TerminalRenderer : IDisposable
             t2 = Stopwatch.GetTimestamp();
         }
 
-        // Pass 2: Collect all visible glyphs with positions and colors
+        // Pass 2: Collect all visible glyphs with positions, colors and style variants
         var count = 0;
+        var blinking = false;
+        var decorated = false;
         for (var y = 0; y < buffer.rows; y++)
         {
             var row = buffer.GetRow(y);
@@ -171,30 +214,54 @@ public class TerminalRenderer : IDisposable
             for (var x = 0; x < buffer.columns; x++)
             {
                 var cell = row[x];
-                if (cell.character <= ' ')
+                if (cell.blink)
+                {
+                    blinking = true;
+                }
+                if (cell.underline != UnderlineStyle.None || cell.strikethrough || cell.overline)
+                {
+                    decorated = true;
+                }
+
+                // Blank cells carry no glyph, SGR 8 conceals it, and a blinking cell drops it
+                // for the off half of the blink cycle — but all three can still be decorated.
+                if (cell.character <= ' ' || cell.invisible || (cell.blink && !blinkVisible))
                 {
                     continue;
                 }
 
-                var tf = ResolveTypeface(cell.character);
-                var glyphFont = GetFont(tf);
+                var glyphFont = GetFont(ResolveTypeface(cell.character), cell.bold, cell.italic);
                 glyphBuf[count] = glyphFont.GetGlyph(cell.character);
-                typefaceBuf[count] = tf;
+                fontBuf[count] = glyphFont;
                 posBuf[count] = new SKPoint(x * cellWidth, py);
                 colorBuf[count] = GetFgColor(cell, x, y, selection);
                 count++;
             }
         }
 
+        HasBlinkingCells = blinking;
+
         if (profiling)
         {
             t3 = Stopwatch.GetTimestamp();
         }
 
-        // Pass 3: Draw glyphs batched by color using SKTextBlob
+        // Pass 3: Draw glyphs batched by color and font variant using SKTextBlob
         if (count > 0)
         {
             DrawGlyphsByColor(canvas, count);
+        }
+
+        // Pass 4: Decorations, drawn last so a strikethrough lands on top of its glyph.
+        if (decorated)
+        {
+            for (var y = 0; y < buffer.rows; y++)
+            {
+                var row = buffer.GetRow(y);
+                DrawRowDecorations(canvas, row, y, selection, blinkVisible, Decoration.Underline);
+                DrawRowDecorations(canvas, row, y, selection, blinkVisible, Decoration.Strikeout);
+                DrawRowDecorations(canvas, row, y, selection, blinkVisible, Decoration.Overline);
+            }
         }
 
         if (profiling)
@@ -222,10 +289,13 @@ public class TerminalRenderer : IDisposable
 
             // Re-draw character under cursor with inverted color so it's visible
             var cursorCell = buffer[buffer.cursorX, buffer.cursorY];
-            if (cursorCell.character > ' ')
+            if (cursorCell.character > ' ' && !cursorCell.invisible)
             {
-                var tf = ResolveTypeface(cursorCell.character);
-                var cursorFont = GetFont(tf);
+                var cursorFont = GetFont(
+                    ResolveTypeface(cursorCell.character),
+                    cursorCell.bold,
+                    cursorCell.italic
+                );
                 var glyph = cursorFont.GetGlyph(cursorCell.character);
                 var pos = new SKPoint(
                     buffer.cursorX * cellWidth,
@@ -309,12 +379,12 @@ public class TerminalRenderer : IDisposable
             }
 
             var color = colorBuf[i];
-            var tf = typefaceBuf[i];
+            var runFont = fontBuf[i];
             var runCount = 0;
 
             for (var j = i; j < count; j++)
             {
-                if (!drawnBuf[j] && colorBuf[j] == color && typefaceBuf[j] == tf)
+                if (!drawnBuf[j] && colorBuf[j] == color && ReferenceEquals(fontBuf[j], runFont))
                 {
                     runGlyphBuf[runCount] = glyphBuf[j];
                     runPosBuf[runCount] = posBuf[j];
@@ -323,7 +393,6 @@ public class TerminalRenderer : IDisposable
                 }
             }
 
-            var runFont = GetFont(tf);
             using var blob = BuildBlob(runFont, runGlyphBuf, runPosBuf, runCount);
             if (blob != null)
             {
@@ -399,21 +468,224 @@ public class TerminalRenderer : IDisposable
         }
     }
 
-    SKFont GetFont(SKTypeface? tf)
+    SKFont GetFont(SKTypeface? tf, bool bold, bool italic)
     {
-        if (tf == null)
+        // The overwhelmingly common case: primary typeface, no synthetic styling.
+        if (tf == null && !bold && !italic)
         {
             return font;
         }
 
-        if (fallbackFontCache.TryGetValue(tf, out var cached))
+        var key = (tf, bold, italic);
+        if (styledFontCache.TryGetValue(key, out var cached))
         {
             return cached;
         }
 
-        var matched = new SKFont(tf, font.Size) { Subpixel = true };
-        fallbackFontCache[tf] = matched;
-        return matched;
+        var variant = new SKFont(tf ?? typeface, font.Size)
+        {
+            Subpixel = true,
+            Embolden = bold,
+            SkewX = italic ? italicSkew : 0f,
+        };
+        styledFontCache[key] = variant;
+        return variant;
+    }
+
+    enum Decoration
+    {
+        Underline,
+        Strikeout,
+        Overline,
+    }
+
+    /// <summary>
+    /// Draws one decoration kind for a single row, batching contiguous cells that share a colour
+    /// (and, for underlines, a style) into one stroke so a fully underlined line is a single draw.
+    /// </summary>
+    void DrawRowDecorations(
+        SKCanvas canvas,
+        ReadOnlySpan<Cell> row,
+        int y,
+        TextSelection? selection,
+        bool blinkVisible,
+        Decoration kind
+    )
+    {
+        var top = y * cellHeight;
+        var runStart = -1;
+        var runColor = 0u;
+        var runStyle = UnderlineStyle.None;
+
+        // One past the end closes any run still open at the right edge of the row.
+        for (var x = 0; x <= row.Length; x++)
+        {
+            var active = false;
+            var color = 0u;
+            var style = UnderlineStyle.None;
+
+            if (x < row.Length)
+            {
+                var cell = row[x];
+                if (blinkVisible || !cell.blink)
+                {
+                    switch (kind)
+                    {
+                        case Decoration.Underline:
+                            style = cell.underline;
+                            active = style != UnderlineStyle.None;
+                            // 0 is the "no explicit SGR 58 colour" sentinel: inherit the text colour.
+                            color =
+                                cell.underlineColor != 0
+                                    ? cell.underlineColor
+                                    : GetFgColor(cell, x, y, selection);
+                            break;
+                        case Decoration.Strikeout:
+                            active = cell.strikethrough;
+                            color = GetFgColor(cell, x, y, selection);
+                            break;
+                        default:
+                            active = cell.overline;
+                            color = GetFgColor(cell, x, y, selection);
+                            break;
+                    }
+                }
+            }
+
+            if (active && runStart >= 0 && color == runColor && style == runStyle)
+            {
+                continue;
+            }
+
+            if (runStart >= 0)
+            {
+                DrawDecoration(
+                    canvas,
+                    runStart * cellWidth,
+                    x * cellWidth,
+                    top,
+                    runColor,
+                    kind,
+                    runStyle
+                );
+                runStart = -1;
+            }
+
+            if (active)
+            {
+                runStart = x;
+                runColor = color;
+                runStyle = style;
+            }
+        }
+    }
+
+    void DrawDecoration(
+        SKCanvas canvas,
+        float x0,
+        float x1,
+        float top,
+        uint color,
+        Decoration kind,
+        UnderlineStyle style
+    )
+    {
+        decorationPaint.Color = new SKColor(color);
+        decorationPaint.Style = SKPaintStyle.Fill;
+
+        if (kind == Decoration.Strikeout)
+        {
+            canvas.DrawRect(
+                x0,
+                top + strikethroughOffset,
+                x1 - x0,
+                decorationThickness,
+                decorationPaint
+            );
+            return;
+        }
+
+        if (kind == Decoration.Overline)
+        {
+            canvas.DrawRect(
+                x0,
+                top + overlineOffset,
+                x1 - x0,
+                decorationThickness,
+                decorationPaint
+            );
+            return;
+        }
+
+        var y = top + underlineOffset;
+        switch (style)
+        {
+            case UnderlineStyle.Double:
+                canvas.DrawRect(x0, y, x1 - x0, decorationThickness, decorationPaint);
+                canvas.DrawRect(
+                    x0,
+                    y - decorationThickness * 2,
+                    x1 - x0,
+                    decorationThickness,
+                    decorationPaint
+                );
+                break;
+            case UnderlineStyle.Curly:
+                DrawCurlyUnderline(canvas, x0, x1, y);
+                break;
+            case UnderlineStyle.Dotted:
+                DrawDashedUnderline(canvas, x0, x1, y, decorationThickness, decorationThickness);
+                break;
+            case UnderlineStyle.Dashed:
+                DrawDashedUnderline(
+                    canvas,
+                    x0,
+                    x1,
+                    y,
+                    decorationThickness * 3,
+                    decorationThickness * 2
+                );
+                break;
+            default:
+                canvas.DrawRect(x0, y, x1 - x0, decorationThickness, decorationPaint);
+                break;
+        }
+    }
+
+    /// <summary>Dots and dashes are drawn as pixel-aligned rects rather than via an
+    /// SKPathEffect: no per-frame effect allocation, and the segments stay crisp.</summary>
+    void DrawDashedUnderline(SKCanvas canvas, float x0, float x1, float y, float on, float off)
+    {
+        for (var x = x0; x < x1; x += on + off)
+        {
+            canvas.DrawRect(x, y, MathF.Min(on, x1 - x), decorationThickness, decorationPaint);
+        }
+    }
+
+    void DrawCurlyUnderline(SKCanvas canvas, float x0, float x1, float baseY)
+    {
+        // A quadratic reaches half of its control-point offset, so a control offset of 2a gives
+        // a wave of amplitude a — keeping the whole squiggle inside the cell.
+        var amplitude = decorationThickness;
+        var centerY = baseY - amplitude;
+        var period = MathF.Max(4f, cellWidth / 2f);
+
+        curlyPath.Reset();
+        curlyPath.MoveTo(x0, centerY);
+
+        var up = true;
+        for (var x = x0; x < x1; x += period)
+        {
+            var next = MathF.Min(x + period, x1);
+            var control = centerY + (up ? -amplitude * 2 : amplitude * 2);
+            curlyPath.QuadTo((x + next) / 2f, control, next, centerY);
+            up = !up;
+        }
+
+        decorationPaint.Style = SKPaintStyle.Stroke;
+        decorationPaint.StrokeWidth = decorationThickness;
+        canvas.DrawPath(curlyPath, decorationPaint);
+        decorationPaint.Style = SKPaintStyle.Fill;
     }
 
     void EnsureBuffers(int cellCount)
@@ -425,22 +697,41 @@ public class TerminalRenderer : IDisposable
             posBuf = new SKPoint[cellCount];
             colorBuf = new uint[cellCount];
             drawnBuf = new bool[cellCount];
-            typefaceBuf = new SKTypeface?[cellCount];
+            fontBuf = new SKFont[cellCount];
             runGlyphBuf = new ushort[cellCount];
             runPosBuf = new SKPoint[cellCount];
         }
     }
 
+    // SGR 7 and the selection highlight both swap foreground and background, so a selected
+    // inverse cell inverts twice and renders as ordinary text — which is what users expect.
+    static bool IsSwapped(Cell cell, int x, int y, TextSelection? selection) =>
+        cell.inverse ^ (selection.HasValue && TextSelection.IsInSelection(x, y, selection.Value));
+
     static uint GetFgColor(Cell cell, int x, int y, TextSelection? selection)
     {
-        var selected = selection.HasValue && TextSelection.IsInSelection(x, y, selection.Value);
-        return selected ? cell.background : cell.foreground;
+        var swapped = IsSwapped(cell, x, y, selection);
+        var fg = swapped ? cell.background : cell.foreground;
+        if (!cell.faint)
+        {
+            return fg;
+        }
+
+        // SGR 2 has no colour of its own: dim it halfway toward whatever it sits on.
+        return Blend(fg, swapped ? cell.foreground : cell.background);
     }
 
-    static uint GetBgColor(Cell cell, int x, int y, TextSelection? selection)
+    static uint GetBgColor(Cell cell, int x, int y, TextSelection? selection) =>
+        IsSwapped(cell, x, y, selection) ? cell.foreground : cell.background;
+
+    /// <summary>Midpoint of two ARGB colours, keeping <paramref name="a"/>'s alpha.</summary>
+    static uint Blend(uint a, uint b)
     {
-        var selected = selection.HasValue && TextSelection.IsInSelection(x, y, selection.Value);
-        return selected ? cell.foreground : cell.background;
+        var alpha = a & 0xFF000000;
+        var red = (((a >> 16) & 0xFF) + ((b >> 16) & 0xFF)) / 2;
+        var green = (((a >> 8) & 0xFF) + ((b >> 8) & 0xFF)) / 2;
+        var blue = ((a & 0xFF) + (b & 0xFF)) / 2;
+        return alpha | (red << 16) | (green << 8) | blue;
     }
 
     public void Dispose()
@@ -454,7 +745,10 @@ public class TerminalRenderer : IDisposable
         backgroundPaint.Dispose();
         cursorPaint.Dispose();
         readOnlyStrokePaint.Dispose();
-        foreach (var f in fallbackFontCache.Values)
+        decorationPaint.Dispose();
+        curlyPath.Dispose();
+        // The primary font is never stored in this cache, so it can't be double-disposed here.
+        foreach (var f in styledFontCache.Values)
         {
             f.Dispose();
         }
