@@ -50,68 +50,86 @@ public sealed class SplitPane : PaneNode
         First = first;
         Second = second;
         GridView = new Grid();
-        var clampedRatio = Math.Clamp(ratio, minRatio, maxRatio);
 
-        if (orientation == Orientation.Horizontal)
+        DefineCells(Math.Clamp(ratio, minRatio, maxRatio));
+        SetCell(first.View, 0);
+        SetCell(second.View, 2);
+
+        var splitter = CreateSplitter();
+        var divider = CreateDivider();
+        SetCell(splitter, 1);
+        SetCell(divider, 1);
+
+        GridView.Children.Add(first.View);
+        GridView.Children.Add(splitter);
+        GridView.Children.Add(divider);
+        GridView.Children.Add(second.View);
+
+        View = GridView;
+    }
+
+    /// <summary>Lays out the three cells: the two panes with the gutter between them.</summary>
+    void DefineCells(double ratio)
+    {
+        if (Orientation == Orientation.Horizontal)
         {
-            GridView.ColumnDefinitions.Add(new ColumnDefinition(clampedRatio, GridUnitType.Star));
+            GridView.ColumnDefinitions.Add(new ColumnDefinition(ratio, GridUnitType.Star));
             GridView.ColumnDefinitions.Add(
                 new ColumnDefinition(gutterThickness, GridUnitType.Pixel)
             );
-            GridView.ColumnDefinitions.Add(
-                new ColumnDefinition(1 - clampedRatio, GridUnitType.Star)
-            );
+            GridView.ColumnDefinitions.Add(new ColumnDefinition(1 - ratio, GridUnitType.Star));
+        }
+        else
+        {
+            GridView.RowDefinitions.Add(new RowDefinition(ratio, GridUnitType.Star));
+            GridView.RowDefinitions.Add(new RowDefinition(gutterThickness, GridUnitType.Pixel));
+            GridView.RowDefinitions.Add(new RowDefinition(1 - ratio, GridUnitType.Star));
+        }
+    }
 
-            Grid.SetColumn(first.View, 0);
-            Grid.SetColumn(second.View, 2);
+    /// <summary>Assigns a child to one of the three cells along the split's axis.</summary>
+    void SetCell(Control view, int cellIndex)
+    {
+        if (Orientation == Orientation.Horizontal)
+        {
+            Grid.SetColumn(view, cellIndex);
+        }
+        else
+        {
+            Grid.SetRow(view, cellIndex);
+        }
+    }
 
-            var splitter = new GridSplitter
-            {
-                ResizeDirection = GridResizeDirection.Columns,
-                ResizeBehavior = GridResizeBehavior.PreviousAndNext,
-                Background = gutterBrush,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
-            };
-            Grid.SetColumn(splitter, 1);
-            splitter.DragCompleted += (_, _) => RatioChanged?.Invoke();
+    GridSplitter CreateSplitter()
+    {
+        var splitter = new GridSplitter
+        {
+            ResizeDirection =
+                Orientation == Orientation.Horizontal
+                    ? GridResizeDirection.Columns
+                    : GridResizeDirection.Rows,
+            ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+            Background = gutterBrush,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        splitter.DragCompleted += (_, _) => RatioChanged?.Invoke();
+        return splitter;
+    }
 
-            var divider = new Border
+    /// <summary>The hairline drawn down the middle of the gutter. It sits above the splitter
+    /// but takes no hits, so the gutter stays draggable across its full width.</summary>
+    Border CreateDivider() =>
+        Orientation == Orientation.Horizontal
+            ? new Border
             {
                 Background = dividerBrush,
                 Width = dividerThickness,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Stretch,
                 IsHitTestVisible = false,
-            };
-            Grid.SetColumn(divider, 1);
-
-            GridView.Children.Add(first.View);
-            GridView.Children.Add(splitter);
-            GridView.Children.Add(divider);
-            GridView.Children.Add(second.View);
-        }
-        else
-        {
-            GridView.RowDefinitions.Add(new RowDefinition(clampedRatio, GridUnitType.Star));
-            GridView.RowDefinitions.Add(new RowDefinition(gutterThickness, GridUnitType.Pixel));
-            GridView.RowDefinitions.Add(new RowDefinition(1 - clampedRatio, GridUnitType.Star));
-
-            Grid.SetRow(first.View, 0);
-            Grid.SetRow(second.View, 2);
-
-            var splitter = new GridSplitter
-            {
-                ResizeDirection = GridResizeDirection.Rows,
-                ResizeBehavior = GridResizeBehavior.PreviousAndNext,
-                Background = gutterBrush,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
-            };
-            Grid.SetRow(splitter, 1);
-            splitter.DragCompleted += (_, _) => RatioChanged?.Invoke();
-
-            var divider = new Border
+            }
+            : new Border
             {
                 Background = dividerBrush,
                 Height = dividerThickness,
@@ -119,16 +137,6 @@ public sealed class SplitPane : PaneNode
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false,
             };
-            Grid.SetRow(divider, 1);
-
-            GridView.Children.Add(first.View);
-            GridView.Children.Add(splitter);
-            GridView.Children.Add(divider);
-            GridView.Children.Add(second.View);
-        }
-
-        View = GridView;
-    }
 
     public double ComputeRatio()
     {
@@ -148,14 +156,7 @@ public sealed class SplitPane : PaneNode
 
     public void PlaceChild(PaneNode child, int cellIndex)
     {
-        if (Orientation == Orientation.Horizontal)
-        {
-            Grid.SetColumn(child.View, cellIndex);
-        }
-        else
-        {
-            Grid.SetRow(child.View, cellIndex);
-        }
+        SetCell(child.View, cellIndex);
 
         if (!GridView.Children.Contains(child.View))
         {
@@ -195,7 +196,7 @@ public sealed class PaneTree
 
     public LeafPane? LeafFor(IPaneTerminal terminal)
     {
-        return FindLeaf(root, terminal);
+        return PaneNodes.Find(root, terminal);
     }
 
     public LeafPane Split(
@@ -205,55 +206,75 @@ public sealed class PaneTree
         double ratio = 0.5
     )
     {
-        var orientation = direction is SplitDirection.Right or SplitDirection.Left
-            ? Orientation.Horizontal
-            : Orientation.Vertical;
-        var newGoesAfter = direction is SplitDirection.Right or SplitDirection.Down;
-
         var newTerminal = terminalFactory(workingDirectory);
         var newLeaf = new LeafPane(newTerminal);
         TrackLeaf(newLeaf);
 
-        var parent = FindParent(root, target);
-        int parentCell = 0;
-        if (parent != null)
-        {
-            parentCell = parent.First == target ? 0 : 2;
-            parent.GridView.Children.Remove(target.View);
-        }
-        else
-        {
-            RootView.Children.Remove(target.View);
-        }
-
-        var split = newGoesAfter
-            ? new SplitPane(orientation, target, newLeaf, ratio)
-            : new SplitPane(orientation, newLeaf, target, ratio);
-        split.RatioChanged += () => LayoutChanged?.Invoke();
-
-        if (parent != null)
-        {
-            parent.PlaceChild(split, parentCell);
-            if (parent.First == target)
-            {
-                parent.First = split;
-            }
-            else
-            {
-                parent.Second = split;
-            }
-        }
-        else
-        {
-            RootView.Children.Add(split.View);
-            root = split;
-        }
+        var parent = Detach(target);
+        var split = CreateSplit(target, newLeaf, direction, ratio);
+        Replace(parent, target, split);
 
         SetFocusedLeaf(newLeaf);
         newTerminal.Focus();
         LayoutChanged?.Invoke();
 
         return newLeaf;
+    }
+
+    /// <summary>Pairs the existing pane with the new one, on the axis and in the order the
+    /// direction asks for.</summary>
+    SplitPane CreateSplit(LeafPane target, LeafPane newLeaf, SplitDirection direction, double ratio)
+    {
+        var orientation = direction is SplitDirection.Right or SplitDirection.Left
+            ? Orientation.Horizontal
+            : Orientation.Vertical;
+        var newGoesAfter = direction is SplitDirection.Right or SplitDirection.Down;
+
+        var split = newGoesAfter
+            ? new SplitPane(orientation, target, newLeaf, ratio)
+            : new SplitPane(orientation, newLeaf, target, ratio);
+        split.RatioChanged += () => LayoutChanged?.Invoke();
+        return split;
+    }
+
+    /// <summary>Lifts a node out of the visual tree, handing back the split it hung from —
+    /// null when it was the root.</summary>
+    SplitPane? Detach(PaneNode node)
+    {
+        var parent = PaneNodes.Parent(root, node);
+        if (parent == null)
+        {
+            RootView.Children.Remove(node.View);
+        }
+        else
+        {
+            parent.GridView.Children.Remove(node.View);
+        }
+
+        return parent;
+    }
+
+    /// <summary>Hangs <paramref name="replacement"/> in the slot <paramref name="detached"/>
+    /// came out of, promoting it to root when there is no parent.</summary>
+    void Replace(SplitPane? parent, PaneNode detached, PaneNode replacement)
+    {
+        if (parent == null)
+        {
+            RootView.Children.Add(replacement.View);
+            root = replacement;
+            return;
+        }
+
+        if (parent.First == detached)
+        {
+            parent.First = replacement;
+            parent.PlaceChild(replacement, 0);
+        }
+        else
+        {
+            parent.Second = replacement;
+            parent.PlaceChild(replacement, 2);
+        }
     }
 
     public bool Close(LeafPane target)
@@ -266,35 +287,16 @@ public sealed class PaneTree
             return true;
         }
 
-        var parent = FindParent(root, target)!;
+        // Closing one half of a split dissolves the split itself: the sibling moves up into
+        // the space the two of them shared.
+        var parent = PaneNodes.Parent(root, target)!;
         var sibling = parent.First == target ? parent.Second : parent.First;
         parent.GridView.Children.Remove(sibling.View);
-
-        var grandparent = FindParent(root, parent);
-        if (grandparent == null)
-        {
-            RootView.Children.Remove(parent.View);
-            RootView.Children.Add(sibling.View);
-            root = sibling;
-        }
-        else
-        {
-            int cellIndex = grandparent.First == parent ? 0 : 2;
-            grandparent.GridView.Children.Remove(parent.View);
-            grandparent.PlaceChild(sibling, cellIndex);
-            if (grandparent.First == parent)
-            {
-                grandparent.First = sibling;
-            }
-            else
-            {
-                grandparent.Second = sibling;
-            }
-        }
+        Replace(Detach(parent), parent, sibling);
 
         if (focusedLeaf == target)
         {
-            var newFocus = FirstLeaf(sibling);
+            var newFocus = PaneNodes.FirstLeaf(sibling);
             SetFocusedLeaf(newFocus);
             newFocus.Terminal.Focus();
         }
@@ -305,22 +307,8 @@ public sealed class PaneTree
 
     public void DisposeAll()
     {
-        DisposeNode(root);
+        PaneNodes.CloseAll(root);
         RootView.Children.Clear();
-    }
-
-    void DisposeNode(PaneNode node)
-    {
-        switch (node)
-        {
-            case LeafPane leaf:
-                leaf.Terminal.Close();
-                break;
-            case SplitPane split:
-                DisposeNode(split.First);
-                DisposeNode(split.Second);
-                break;
-        }
     }
 
     void TrackLeaf(LeafPane leaf)
@@ -337,37 +325,5 @@ public sealed class PaneTree
         }
         focusedLeaf = leaf;
         FocusedLeafChanged?.Invoke();
-    }
-
-    static SplitPane? FindParent(PaneNode current, PaneNode target)
-    {
-        if (current is not SplitPane split)
-        {
-            return null;
-        }
-        if (split.First == target || split.Second == target)
-        {
-            return split;
-        }
-        return FindParent(split.First, target) ?? FindParent(split.Second, target);
-    }
-
-    static LeafPane? FindLeaf(PaneNode node, IPaneTerminal terminal)
-    {
-        return node switch
-        {
-            LeafPane leaf when leaf.Terminal == terminal => leaf,
-            SplitPane split => FindLeaf(split.First, terminal) ?? FindLeaf(split.Second, terminal),
-            _ => null,
-        };
-    }
-
-    static LeafPane FirstLeaf(PaneNode node)
-    {
-        while (node is SplitPane split)
-        {
-            node = split.First;
-        }
-        return (LeafPane)node;
     }
 }
