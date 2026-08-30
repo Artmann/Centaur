@@ -50,15 +50,7 @@ public class TerminalControl : Control, IPaneTerminal
     bool awaitingPrompt = true;
 
     // Selection state (UI thread only)
-    int selAnchorCol,
-        selAnchorRow;
-    int selCurrentCol,
-        selCurrentRow;
-    bool isDragging;
-    bool hasSelection;
-    int selectionMode; // 0=char, 1=word, 2=line
-    int wordAnchorStart,
-        wordAnchorEnd; // word-mode anchor boundaries
+    readonly SelectionController selection = new();
 
     // Reverse search state
     readonly CommandHistory commandHistory;
@@ -125,7 +117,7 @@ public class TerminalControl : Control, IPaneTerminal
         var menu = new ContextMenu();
         var context = new TerminalMenuContext
         {
-            SelectionPresent = () => hasSelection,
+            SelectionPresent = () => selection.HasSelection,
             ReadOnly = () => isReadOnly,
             ToggleReadOnlyRequested = () =>
             {
@@ -375,45 +367,11 @@ public class TerminalControl : Control, IPaneTerminal
         }
 
         var (col, row) = PixelToGrid(point.Position);
-        var clickCount = e.ClickCount;
 
-        if (clickCount >= 3)
+        lock (bufferLock)
         {
-            // Triple-click: select entire line
-            selectionMode = 2;
-            selAnchorCol = 0;
-            selAnchorRow = row;
-            selCurrentCol = parser.ActiveBuffer.columns;
-            selCurrentRow = row;
-            hasSelection = true;
+            selection.BeginDrag(parser.ActiveBuffer, col, row, e.ClickCount);
         }
-        else if (clickCount == 2)
-        {
-            // Double-click: select word
-            selectionMode = 1;
-            lock (bufferLock)
-            {
-                wordAnchorStart = TextSelection.FindWordStart(parser.ActiveBuffer, col, row);
-                wordAnchorEnd = TextSelection.FindWordEnd(parser.ActiveBuffer, col, row);
-            }
-            selAnchorCol = wordAnchorStart;
-            selAnchorRow = row;
-            selCurrentCol = wordAnchorEnd;
-            selCurrentRow = row;
-            hasSelection = true;
-        }
-        else
-        {
-            // Single click: character selection
-            selectionMode = 0;
-            selAnchorCol = col;
-            selAnchorRow = row;
-            selCurrentCol = col;
-            selCurrentRow = row;
-            hasSelection = false;
-        }
-
-        isDragging = true;
 
         MarkDirty();
         e.Pointer.Capture(this);
@@ -423,58 +381,16 @@ public class TerminalControl : Control, IPaneTerminal
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (!isDragging)
+        if (!selection.IsDragging)
+        {
             return;
+        }
 
         var (col, row) = PixelToGrid(e.GetPosition(this));
 
-        if (selectionMode == 2)
+        lock (bufferLock)
         {
-            // Line mode: snap to full lines
-            if (row < selAnchorRow)
-            {
-                selAnchorCol = parser.ActiveBuffer.columns;
-                selCurrentCol = 0;
-                selCurrentRow = row;
-            }
-            else
-            {
-                selAnchorCol = 0;
-                selCurrentCol = parser.ActiveBuffer.columns;
-                selCurrentRow = row;
-            }
-            hasSelection = true;
-        }
-        else if (selectionMode == 1)
-        {
-            // Word mode: snap to word boundaries
-            lock (bufferLock)
-            {
-                bool beforeAnchor =
-                    row < selAnchorRow || (row == selAnchorRow && col < wordAnchorStart);
-                if (beforeAnchor)
-                {
-                    selAnchorCol = wordAnchorEnd;
-                    selCurrentCol = TextSelection.FindWordStart(parser.ActiveBuffer, col, row);
-                    selCurrentRow = row;
-                }
-                else
-                {
-                    selAnchorCol = wordAnchorStart;
-                    selCurrentCol = TextSelection.FindWordEnd(parser.ActiveBuffer, col, row);
-                    selCurrentRow = row;
-                }
-            }
-            hasSelection = true;
-        }
-        else
-        {
-            // Char mode
-            selCurrentCol = col;
-            selCurrentRow = row;
-
-            if (col != selAnchorCol || row != selAnchorRow)
-                hasSelection = true;
+            selection.ExtendDrag(parser.ActiveBuffer, col, row);
         }
 
         MarkDirty();
@@ -484,15 +400,15 @@ public class TerminalControl : Control, IPaneTerminal
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (!isDragging)
+        if (!selection.IsDragging)
+        {
             return;
+        }
 
-        isDragging = false;
         e.Pointer.Capture(null);
 
         var (col, row) = PixelToGrid(e.GetPosition(this));
-        if (selectionMode == 0 && col == selAnchorCol && row == selAnchorRow)
-            hasSelection = false;
+        selection.EndDrag(col, row);
 
         MarkDirty();
         e.Handled = true;
@@ -522,7 +438,7 @@ public class TerminalControl : Control, IPaneTerminal
             }
         }
 
-        hasSelection = false;
+        selection.Clear();
         MarkDirty();
         e.Handled = true;
     }
@@ -552,7 +468,7 @@ public class TerminalControl : Control, IPaneTerminal
                 {
                     parser.ActiveBuffer.ScrollViewUp(parser.ActiveBuffer.rows - 1);
                 }
-                hasSelection = false;
+                selection.Clear();
                 MarkDirty();
                 e.Handled = true;
                 return;
@@ -563,7 +479,7 @@ public class TerminalControl : Control, IPaneTerminal
                 {
                     parser.ActiveBuffer.ScrollViewDown(parser.ActiveBuffer.rows - 1);
                 }
-                hasSelection = false;
+                selection.Clear();
                 MarkDirty();
                 e.Handled = true;
                 return;
@@ -616,7 +532,7 @@ public class TerminalControl : Control, IPaneTerminal
         // Handle Ctrl+key combinations
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
-            if (e.Key == Key.C && hasSelection)
+            if (e.Key == Key.C && selection.HasSelection)
             {
                 CopySelectionToClipboard();
                 e.Handled = true;
@@ -923,26 +839,18 @@ public class TerminalControl : Control, IPaneTerminal
 
     async void CopySelectionToClipboard()
     {
-        var sel = TextSelection.Normalize(selAnchorCol, selAnchorRow, selCurrentCol, selCurrentRow);
         string text;
         lock (bufferLock)
         {
-            text = TextSelection.ExtractText(parser.ActiveBuffer, sel);
+            text = TextSelection.ExtractText(parser.ActiveBuffer, selection.Current);
         }
 
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard != null)
             await clipboard.SetTextAsync(text);
 
-        hasSelection = false;
+        selection.Clear();
         MarkDirty();
-    }
-
-    TextSelection? GetNormalizedSelection()
-    {
-        if (!hasSelection)
-            return null;
-        return TextSelection.Normalize(selAnchorCol, selAnchorRow, selCurrentCol, selCurrentRow);
     }
 
     public override void Render(DrawingContext context)
@@ -969,7 +877,7 @@ public class TerminalControl : Control, IPaneTerminal
                 bounds,
                 snapshot,
                 renderer,
-                GetNormalizedSelection(),
+                selection.Normalized,
                 overlays,
                 cursorVisible: cursorVis,
                 readOnly: isReadOnly
