@@ -2,6 +2,8 @@
   "deadCode": {
     "ignore": [
       "src/Centaur.App/TabBar.cs",
+      "src/Centaur.App/TabColors.cs",
+      "src/Centaur.App/TabRenameEditor.cs",
       "src/Centaur.Pty.Windows/Interop.cs",
       "src/Centaur.Core/Hosting/TerminalHooks.cs"
     ]
