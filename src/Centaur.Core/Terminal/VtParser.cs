@@ -8,20 +8,10 @@ public class VtParser
     readonly ScreenBuffer alternateBuffer;
     ScreenBuffer buffer;
     readonly TerminalTheme theme;
-    uint currentFg;
-    uint currentBg;
 
-    // Current SGR text-style "pen" applied to each printed cell.
-    bool currentBold;
-    bool currentFaint;
-    bool currentItalic;
-    UnderlineStyle currentUnderline;
-    uint currentUnderlineColor;
-    bool currentBlink;
-    bool currentInverse;
-    bool currentInvisible;
-    bool currentStrikethrough;
-    bool currentOverline;
+    // Colours and text styles SGR selects, and the cell the erase operations fill with.
+    readonly SgrPen pen;
+    readonly Cell blank;
 
     // DEC Private Mode state
     public bool CursorVisible { get; private set; } = true;
@@ -73,9 +63,6 @@ public class VtParser
     // Fired for OSC 52 clipboard writes/clears (read requests use Respond instead).
     public event Action<ClipboardRequest>? ClipboardChanged;
 
-    // Active OSC 8 hyperlink target applied to printed cells (null when none).
-    string? currentHyperlink;
-
     // Saved cursor state (DECSC/DECRC). Per-screen: the main and alternate buffers
     // each have their own register, matching xterm. A full-screen app's save/restore
     // on the alternate screen must not corrupt the main screen's cursor, which is
@@ -105,8 +92,8 @@ public class VtParser
         ref var slot = ref CurrentSaved();
         slot.x = buffer.cursorX;
         slot.y = buffer.cursorY;
-        slot.fg = currentFg;
-        slot.bg = currentBg;
+        slot.fg = pen.Foreground;
+        slot.bg = pen.Background;
     }
 
     void RestoreCursor()
@@ -114,8 +101,8 @@ public class VtParser
         ref var slot = ref CurrentSaved();
         buffer.cursorX = slot.x;
         buffer.cursorY = slot.y;
-        currentFg = slot.fg;
-        currentBg = slot.bg;
+        pen.Foreground = slot.fg;
+        pen.Background = slot.bg;
     }
 
     enum State
@@ -166,8 +153,8 @@ public class VtParser
         );
         this.buffer = buffer;
         this.theme = theme;
-        currentFg = theme.Foreground;
-        currentBg = theme.Background;
+        pen = new SgrPen(theme);
+        blank = new Cell(' ', theme.Foreground, theme.Background);
         DefaultForeground = theme.Foreground;
         DefaultBackground = theme.Background;
         for (int i = 0; i < Palette.Length; i++)
@@ -243,7 +230,7 @@ public class VtParser
             case 0x0A: // LF - line feed
             case 0x0B: // VT - vertical tab
             case 0x0C: // FF - form feed
-                LineFeed();
+                ScreenOps.LineFeed(buffer);
                 break;
             case 0x0D: // CR - carriage return
                 buffer.cursorX = 0;
@@ -283,7 +270,7 @@ public class VtParser
                 else if (b >= 0x20)
                 {
                     // ASCII printable
-                    WriteChar((char)b);
+                    ScreenOps.Write(buffer, pen.Paint((char)b));
                 }
                 break;
         }
@@ -303,12 +290,12 @@ public class VtParser
                 csiIntermediate = '\0';
                 break;
             case (byte)'D': // IND - Index (move down)
-                LineFeed();
+                ScreenOps.LineFeed(buffer);
                 state = State.Ground;
                 break;
             case (byte)'E': // NEL - Next Line
                 buffer.cursorX = 0;
-                LineFeed();
+                ScreenOps.LineFeed(buffer);
                 state = State.Ground;
                 break;
             case (byte)'M': // RI - Reverse Index (move up)
@@ -439,25 +426,25 @@ public class VtParser
                 buffer.cursorX = Math.Clamp(Param(1, 1) - 1, 0, buffer.columns - 1);
                 break;
             case 'J': // ED - Erase in Display
-                EraseInDisplay(Param(0, 0));
+                ScreenOps.EraseInDisplay(buffer, Param(0, 0), blank);
                 break;
             case 'K': // EL - Erase in Line
-                EraseInLine(Param(0, 0));
+                ScreenOps.EraseInLine(buffer, Param(0, 0), blank);
                 break;
             case 'L': // IL - Insert Lines
-                InsertLines(Param(0));
+                ScreenOps.InsertLines(buffer, Param(0), blank);
                 break;
             case 'M': // DL - Delete Lines
-                DeleteLines(Param(0));
+                ScreenOps.DeleteLines(buffer, Param(0), blank);
                 break;
             case 'P': // DCH - Delete Characters
-                DeleteCharacters(Param(0));
+                ScreenOps.DeleteCharacters(buffer, Param(0), blank);
                 break;
             case '@': // ICH - Insert Characters
-                InsertCharacters(Param(0));
+                ScreenOps.InsertCharacters(buffer, Param(0), blank);
                 break;
             case 'X': // ECH - Erase Characters
-                EraseCharacters(Param(0));
+                ScreenOps.EraseCharacters(buffer, Param(0), blank);
                 break;
             case 'S': // SU - Scroll Up
                 buffer.ScrollUp(Param(0));
@@ -469,7 +456,7 @@ public class VtParser
                 buffer.cursorY = Math.Clamp(Param(0) - 1, 0, buffer.rows - 1);
                 break;
             case 'm': // SGR - Select Graphic Rendition
-                HandleSgr();
+                pen.Apply(csiParams, csiParamIsColon);
                 break;
             case 'c': // DA1 - primary Device Attributes (unprefixed)
                 HandleDeviceAttributes();
@@ -639,7 +626,7 @@ public class VtParser
         var charCount = System.Text.Encoding.UTF8.GetChars(span, chars);
         for (var i = 0; i < charCount; i++)
         {
-            WriteChar(chars[i]);
+            ScreenOps.Write(buffer, pen.Paint(chars[i]));
         }
     }
 
@@ -784,7 +771,7 @@ public class VtParser
         // "8;{params};{uri}" — empty uri ends the current hyperlink.
         var semi = rest.IndexOf(';');
         var uri = semi >= 0 ? rest[(semi + 1)..] : "";
-        currentHyperlink = uri.Length > 0 ? uri : null;
+        pen.Hyperlink = uri.Length > 0 ? uri : null;
     }
 
     void HandleOscClipboard(string rest)
@@ -869,395 +856,5 @@ public class VtParser
         var g = (byte)(argb >> 8);
         var b = (byte)argb;
         return $"rgb:{r:x2}{r:x2}/{g:x2}{g:x2}/{b:x2}{b:x2}";
-    }
-
-    Cell DefaultCell() => new(' ', theme.Foreground, theme.Background);
-
-    void WriteChar(char c)
-    {
-        if (buffer.cursorX >= buffer.columns)
-        {
-            buffer.cursorX = 0;
-            LineFeed();
-        }
-        buffer[buffer.cursorX, buffer.cursorY] = new Cell(c, currentFg, currentBg)
-        {
-            bold = currentBold,
-            faint = currentFaint,
-            italic = currentItalic,
-            underline = currentUnderline,
-            underlineColor = currentUnderlineColor,
-            blink = currentBlink,
-            inverse = currentInverse,
-            invisible = currentInvisible,
-            strikethrough = currentStrikethrough,
-            overline = currentOverline,
-            hyperlink = currentHyperlink,
-        };
-        buffer.cursorX++;
-    }
-
-    void LineFeed()
-    {
-        if (buffer.Scrollback.Offset > 0)
-        {
-            buffer.Scrollback.ScrollToBottom();
-        }
-
-        if (buffer.cursorY == buffer.scrollBottom)
-        {
-            buffer.ScrollUpInRegion(1, buffer.scrollTop, buffer.scrollBottom);
-        }
-        else if (buffer.cursorY < buffer.rows - 1)
-        {
-            buffer.cursorY++;
-        }
-    }
-
-    void EraseInDisplay(int mode)
-    {
-        switch (mode)
-        {
-            case 0: // Erase from cursor to end of screen
-                EraseInLine(0);
-                for (int y = buffer.cursorY + 1; y < buffer.rows; y++)
-                {
-                    for (int x = 0; x < buffer.columns; x++)
-                    {
-                        buffer[x, y] = DefaultCell();
-                    }
-                }
-                break;
-            case 1: // Erase from start of screen to cursor
-                for (int y = 0; y < buffer.cursorY; y++)
-                {
-                    for (int x = 0; x < buffer.columns; x++)
-                    {
-                        buffer[x, y] = DefaultCell();
-                    }
-                }
-                EraseInLine(1);
-                break;
-            case 2: // Erase entire screen (preserve cursor)
-                buffer.ClearCells();
-                break;
-            case 3: // Erase entire screen and scrollback
-                buffer.ClearCells();
-                buffer.Scrollback.Clear();
-                break;
-        }
-    }
-
-    void EraseInLine(int mode)
-    {
-        switch (mode)
-        {
-            case 0: // Erase from cursor to end of line
-                for (int x = buffer.cursorX; x < buffer.columns; x++)
-                {
-                    buffer[x, buffer.cursorY] = DefaultCell();
-                }
-                break;
-            case 1: // Erase from start of line to cursor
-                for (int x = 0; x <= buffer.cursorX; x++)
-                {
-                    buffer[x, buffer.cursorY] = DefaultCell();
-                }
-                break;
-            case 2: // Erase entire line
-                for (int x = 0; x < buffer.columns; x++)
-                {
-                    buffer[x, buffer.cursorY] = DefaultCell();
-                }
-                break;
-        }
-    }
-
-    void InsertLines(int count)
-    {
-        // Scroll lines down from cursor position
-        for (int i = 0; i < count && buffer.cursorY + i < buffer.rows; i++)
-        {
-            for (int y = buffer.rows - 1; y > buffer.cursorY; y--)
-            {
-                for (int x = 0; x < buffer.columns; x++)
-                {
-                    buffer[x, y] = buffer[x, y - 1];
-                }
-            }
-            for (int x = 0; x < buffer.columns; x++)
-            {
-                buffer[x, buffer.cursorY] = DefaultCell();
-            }
-        }
-    }
-
-    void DeleteLines(int count)
-    {
-        // Scroll lines up from cursor position
-        for (int i = 0; i < count && buffer.cursorY + i < buffer.rows; i++)
-        {
-            for (int y = buffer.cursorY; y < buffer.rows - 1; y++)
-            {
-                for (int x = 0; x < buffer.columns; x++)
-                {
-                    buffer[x, y] = buffer[x, y + 1];
-                }
-            }
-            for (int x = 0; x < buffer.columns; x++)
-            {
-                buffer[x, buffer.rows - 1] = DefaultCell();
-            }
-        }
-    }
-
-    void DeleteCharacters(int count)
-    {
-        for (int i = 0; i < count; i++)
-        {
-            for (int x = buffer.cursorX; x < buffer.columns - 1; x++)
-            {
-                buffer[x, buffer.cursorY] = buffer[x + 1, buffer.cursorY];
-            }
-            buffer[buffer.columns - 1, buffer.cursorY] = DefaultCell();
-        }
-    }
-
-    void InsertCharacters(int count)
-    {
-        // Shift characters right from cursor position
-        for (int x = buffer.columns - 1; x >= buffer.cursorX + count; x--)
-        {
-            buffer[x, buffer.cursorY] = buffer[x - count, buffer.cursorY];
-        }
-        // Clear inserted positions
-        for (int x = buffer.cursorX; x < Math.Min(buffer.cursorX + count, buffer.columns); x++)
-        {
-            buffer[x, buffer.cursorY] = DefaultCell();
-        }
-    }
-
-    void EraseCharacters(int count)
-    {
-        // Erase characters at cursor position (doesn't shift)
-        for (int x = buffer.cursorX; x < Math.Min(buffer.cursorX + count, buffer.columns); x++)
-        {
-            buffer[x, buffer.cursorY] = DefaultCell();
-        }
-    }
-
-    // SGR target for an extended-color attribute (38/48/58).
-    enum ColorTarget
-    {
-        Foreground,
-        Background,
-        Underline,
-    }
-
-    void HandleSgr()
-    {
-        // Group params so colon sub-parameters attach to their primary param:
-        // ESC[4:3m -> one group [4,3]; ESC[38;2;1;2;3m -> groups [38],[2],[1],[2],[3].
-        var groups = new List<List<int>>();
-        for (int k = 0; k < csiParams.Count; k++)
-        {
-            if (k == 0 || !csiParamIsColon[k])
-            {
-                groups.Add(new List<int> { csiParams[k] });
-            }
-            else
-            {
-                groups[^1].Add(csiParams[k]);
-            }
-        }
-
-        for (int g = 0; g < groups.Count; g++)
-        {
-            var group = groups[g];
-            var p = group[0];
-            switch (p)
-            {
-                case 0:
-                    ResetStyles();
-                    break;
-                case 1:
-                    currentBold = true;
-                    break;
-                case 2:
-                    currentFaint = true;
-                    break;
-                case 3:
-                    currentItalic = true;
-                    break;
-                case 4:
-                    // ESC[4m is single; ESC[4:Nm selects the style by sub-param.
-                    currentUnderline =
-                        group.Count > 1 ? MapUnderline(group[1]) : UnderlineStyle.Single;
-                    break;
-                case 5:
-                case 6: // Ghostty treats rapid blink (6) the same as blink (5).
-                    currentBlink = true;
-                    break;
-                case 7:
-                    currentInverse = true;
-                    break;
-                case 8:
-                    currentInvisible = true;
-                    break;
-                case 9:
-                    currentStrikethrough = true;
-                    break;
-                case 21:
-                    currentUnderline = UnderlineStyle.Double;
-                    break;
-                case 22: // resets both bold and faint
-                    currentBold = false;
-                    currentFaint = false;
-                    break;
-                case 23:
-                    currentItalic = false;
-                    break;
-                case 24:
-                    currentUnderline = UnderlineStyle.None;
-                    break;
-                case 25:
-                    currentBlink = false;
-                    break;
-                case 27:
-                    currentInverse = false;
-                    break;
-                case 28:
-                    currentInvisible = false;
-                    break;
-                case 29:
-                    currentStrikethrough = false;
-                    break;
-                case >= 30 and <= 37:
-                    currentFg = theme.GetColor(p - 30);
-                    break;
-                case 38:
-                    g = ParseExtendedColor(groups, g, ColorTarget.Foreground);
-                    break;
-                case 39:
-                    currentFg = theme.Foreground;
-                    break;
-                case >= 40 and <= 47:
-                    currentBg = theme.GetColor(p - 40);
-                    break;
-                case 48:
-                    g = ParseExtendedColor(groups, g, ColorTarget.Background);
-                    break;
-                case 49:
-                    currentBg = theme.Background;
-                    break;
-                case 53:
-                    currentOverline = true;
-                    break;
-                case 55:
-                    currentOverline = false;
-                    break;
-                case 58:
-                    g = ParseExtendedColor(groups, g, ColorTarget.Underline);
-                    break;
-                case 59:
-                    // 0 is the sentinel meaning "inherit the foreground color".
-                    currentUnderlineColor = 0;
-                    break;
-                case >= 90 and <= 97:
-                    currentFg = theme.GetColor(p - 90 + 8);
-                    break;
-                case >= 100 and <= 107:
-                    currentBg = theme.GetColor(p - 100 + 8);
-                    break;
-            }
-        }
-    }
-
-    void ResetStyles()
-    {
-        currentFg = theme.Foreground;
-        currentBg = theme.Background;
-        currentBold = false;
-        currentFaint = false;
-        currentItalic = false;
-        currentUnderline = UnderlineStyle.None;
-        currentUnderlineColor = 0;
-        currentBlink = false;
-        currentInverse = false;
-        currentInvisible = false;
-        currentStrikethrough = false;
-        currentOverline = false;
-    }
-
-    static UnderlineStyle MapUnderline(int code) =>
-        code is >= 0 and <= 5 ? (UnderlineStyle)code : UnderlineStyle.Single;
-
-    void SetColorTarget(ColorTarget target, uint color)
-    {
-        switch (target)
-        {
-            case ColorTarget.Foreground:
-                currentFg = color;
-                break;
-            case ColorTarget.Background:
-                currentBg = color;
-                break;
-            case ColorTarget.Underline:
-                currentUnderlineColor = color;
-                break;
-        }
-    }
-
-    static uint MakeRgb(int r, int g, int b) =>
-        0xFF000000u | ((uint)(byte)r << 16) | ((uint)(byte)g << 8) | (byte)b;
-
-    /// <summary>
-    /// Parses an extended-color attribute (38/48/58) at group index <paramref name="g"/>,
-    /// supporting both the colon form (ESC[38:2:r:g:b], all in one group) and the
-    /// legacy semicolon form (ESC[38;2;r;g;b], spread across groups). Returns the
-    /// index of the last group consumed.
-    /// </summary>
-    int ParseExtendedColor(List<List<int>> groups, int g, ColorTarget target)
-    {
-        var group = groups[g];
-
-        // Colon form: mode and color components are sub-parameters of this group.
-        if (group.Count > 1)
-        {
-            var mode = group[1];
-            if (mode == 5 && group.Count >= 3)
-            {
-                SetColorTarget(target, theme.GetColor(group[2]));
-            }
-            else if (mode == 2 && group.Count >= 5)
-            {
-                // The ITU form ESC[38:2::r:g:b carries a colorspace id at index 2,
-                // so the rgb triple starts at 3 when 6+ components are present.
-                var baseIdx = group.Count >= 6 ? 3 : 2;
-                SetColorTarget(
-                    target,
-                    MakeRgb(group[baseIdx], group[baseIdx + 1], group[baseIdx + 2])
-                );
-            }
-            return g;
-        }
-
-        // Semicolon form: mode and components are the following groups.
-        if (g + 1 >= groups.Count)
-        {
-            return g;
-        }
-        var nextMode = groups[g + 1][0];
-        if (nextMode == 5 && g + 2 < groups.Count)
-        {
-            SetColorTarget(target, theme.GetColor(groups[g + 2][0]));
-            return g + 2;
-        }
-        if (nextMode == 2 && g + 4 < groups.Count)
-        {
-            SetColorTarget(target, MakeRgb(groups[g + 2][0], groups[g + 3][0], groups[g + 4][0]));
-            return g + 4;
-        }
-        return g + 1;
     }
 }
