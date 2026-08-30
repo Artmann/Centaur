@@ -34,7 +34,7 @@ public class VtParserSemanticPromptTests
     public void Osc133_A_MarksPromptRow()
     {
         parser.Send("\x1b]133;A\a");
-        Assert.Equal(PromptMark.Prompt, buffer.GetMark(0));
+        Assert.Equal(PromptMark.Prompt, buffer.Marks[0]);
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class VtParserSemanticPromptTests
     {
         // A starts the prompt, B ends it / begins command input on that row.
         parser.Send("\x1b]133;A\a\x1b]133;B\a");
-        Assert.Equal(PromptMark.Command, buffer.GetMark(0));
+        Assert.Equal(PromptMark.Command, buffer.Marks[0]);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class VtParserSemanticPromptTests
     {
         // Move down two rows, then mark start of command output.
         parser.Send("\n\n\x1b]133;C\a");
-        Assert.Equal(PromptMark.Output, buffer.GetMark(2));
+        Assert.Equal(PromptMark.Output, buffer.Marks[2]);
     }
 
     [Fact]

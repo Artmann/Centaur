@@ -208,13 +208,13 @@ sealed class OscHandler
         switch (rest.Length > 0 ? rest[0] : '\0')
         {
             case 'A':
-                buffer.SetMark(buffer.cursorY, PromptMark.Prompt);
+                buffer.Marks[buffer.cursorY] = PromptMark.Prompt;
                 break;
             case 'B':
-                buffer.SetMark(buffer.cursorY, PromptMark.Command);
+                buffer.Marks[buffer.cursorY] = PromptMark.Command;
                 break;
             case 'C':
-                buffer.SetMark(buffer.cursorY, PromptMark.Output);
+                buffer.Marks[buffer.cursorY] = PromptMark.Output;
                 break;
             case 'D':
                 var semi = rest.IndexOf(';');

@@ -29,9 +29,9 @@ static class ScreenOps
             buffer.Scrollback.ScrollToBottom();
         }
 
-        if (buffer.cursorY == buffer.scrollBottom)
+        if (buffer.cursorY == buffer.Region.Bottom)
         {
-            buffer.ScrollUpInRegion(1, buffer.scrollTop, buffer.scrollBottom);
+            buffer.Region.ScrollUpIn(1, buffer.Region.Top, buffer.Region.Bottom);
         }
         else if (buffer.cursorY < buffer.rows - 1)
         {
@@ -43,9 +43,9 @@ static class ScreenOps
     /// its top row.</summary>
     public static void ReverseIndex(ScreenBuffer buffer)
     {
-        if (buffer.cursorY == buffer.scrollTop)
+        if (buffer.cursorY == buffer.Region.Top)
         {
-            buffer.ScrollDownInRegion(1, buffer.scrollTop, buffer.scrollBottom);
+            buffer.Region.ScrollDownIn(1, buffer.Region.Top, buffer.Region.Bottom);
         }
         else if (buffer.cursorY > 0)
         {

@@ -359,10 +359,10 @@ public class VtParser
         switch (command)
         {
             case 'S': // SU - Scroll Up
-                buffer.ScrollUp(args.Get(0));
+                buffer.Region.ScrollUp(args.Get(0));
                 break;
             case 'T': // SD - Scroll Down
-                buffer.ScrollDown(args.Get(0));
+                buffer.Region.ScrollDown(args.Get(0));
                 break;
             case 'm': // SGR - Select Graphic Rendition
                 pen.Apply(csiParams, csiParamIsColon);
@@ -380,7 +380,7 @@ public class VtParser
                 RestoreCursor();
                 break;
             case 'r': // DECSTBM - Set Top and Bottom Margins, 1-based
-                buffer.SetScrollRegion(args.Get(0) - 1, args.Get(1, buffer.rows) - 1);
+                buffer.Region.Set(args.Get(0) - 1, args.Get(1, buffer.rows) - 1);
                 buffer.cursorX = 0;
                 buffer.cursorY = 0;
                 break;
@@ -443,7 +443,7 @@ public class VtParser
             SaveCursor();
             buffer = alternateBuffer;
             buffer.Clear();
-            buffer.SetScrollRegion(0, buffer.rows - 1);
+            buffer.Region.Set(0, buffer.rows - 1);
         }
         else
         {

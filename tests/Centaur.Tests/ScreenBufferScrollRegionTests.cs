@@ -15,35 +15,35 @@ public class ScreenBufferScrollRegionTests
     [Fact]
     public void DefaultScrollRegion_IsFullScreen()
     {
-        Assert.Equal(0, buffer.scrollTop);
-        Assert.Equal(9, buffer.scrollBottom);
+        Assert.Equal(0, buffer.Region.Top);
+        Assert.Equal(9, buffer.Region.Bottom);
     }
 
     [Fact]
     public void SetScrollRegion_SetsTopAndBottom()
     {
-        buffer.SetScrollRegion(2, 7);
+        buffer.Region.Set(2, 7);
 
-        Assert.Equal(2, buffer.scrollTop);
-        Assert.Equal(7, buffer.scrollBottom);
+        Assert.Equal(2, buffer.Region.Top);
+        Assert.Equal(7, buffer.Region.Bottom);
     }
 
     [Fact]
     public void SetScrollRegion_ClampsToValidRange()
     {
-        buffer.SetScrollRegion(-5, 100);
+        buffer.Region.Set(-5, 100);
 
-        Assert.Equal(0, buffer.scrollTop);
-        Assert.Equal(9, buffer.scrollBottom);
+        Assert.Equal(0, buffer.Region.Top);
+        Assert.Equal(9, buffer.Region.Bottom);
     }
 
     [Fact]
     public void SetScrollRegion_InvalidRange_ResetsToFullScreen()
     {
-        buffer.SetScrollRegion(5, 2);
+        buffer.Region.Set(5, 2);
 
-        Assert.Equal(0, buffer.scrollTop);
-        Assert.Equal(9, buffer.scrollBottom);
+        Assert.Equal(0, buffer.Region.Top);
+        Assert.Equal(9, buffer.Region.Bottom);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class ScreenBufferScrollRegionTests
         FillColumn();
 
         // Scroll within region 3..6 (rows 3,4,5,6); row 6 is left cleared.
-        buffer.ScrollUpInRegion(1, 3, 6);
+        buffer.Region.ScrollUpIn(1, 3, 6);
 
         AssertColumn("ABCEFG HIJ");
     }
@@ -63,7 +63,7 @@ public class ScreenBufferScrollRegionTests
         FillColumn();
 
         // Region 3..6 shifts down; row 3 is left cleared.
-        buffer.ScrollDownInRegion(1, 3, 6);
+        buffer.Region.ScrollDownIn(1, 3, 6);
 
         AssertColumn("ABC DEFHIJ");
     }
@@ -73,7 +73,7 @@ public class ScreenBufferScrollRegionTests
     {
         FillColumn();
 
-        buffer.ScrollUpInRegion(2, 2, 5);
+        buffer.Region.ScrollUpIn(2, 2, 5);
 
         AssertColumn("ABEF  GHIJ");
     }
@@ -83,7 +83,7 @@ public class ScreenBufferScrollRegionTests
     {
         FillColumn();
 
-        buffer.ScrollDownInRegion(10, 3, 5);
+        buffer.Region.ScrollDownIn(10, 3, 5);
 
         AssertColumn("ABC   GHIJ");
     }

@@ -84,7 +84,7 @@ public class ScreenBufferTests
         buffer[0, 1] = new Cell('B');
         buffer[0, 2] = new Cell('C');
 
-        buffer.ScrollUp(1);
+        buffer.Region.ScrollUp(1);
 
         Assert.Equal(1, buffer.Scrollback.Count);
     }
@@ -95,7 +95,7 @@ public class ScreenBufferTests
         var buffer = new ScreenBuffer(3, 3);
         buffer.WriteRow(0, "XYZ");
 
-        buffer.ScrollUp(1);
+        buffer.Region.ScrollUp(1);
 
         // The scrolled-off row should be in scrollback
         Assert.Equal(1, buffer.Scrollback.Count);
@@ -109,7 +109,7 @@ public class ScreenBufferTests
         buffer[0, 1] = new Cell('B');
         buffer[0, 2] = new Cell('C');
 
-        buffer.ScrollUp(2);
+        buffer.Region.ScrollUp(2);
 
         Assert.Equal(2, buffer.Scrollback.Count);
     }
@@ -120,7 +120,7 @@ public class ScreenBufferTests
         var buffer = new ScreenBuffer(5, 4);
         buffer[0, 0] = new Cell('A');
 
-        buffer.ScrollUpInRegion(1, 0, 3); // full screen region
+        buffer.Region.ScrollUpIn(1, 0, 3); // full screen region
 
         Assert.Equal(1, buffer.Scrollback.Count);
     }
@@ -131,7 +131,7 @@ public class ScreenBufferTests
         var buffer = new ScreenBuffer(5, 4);
         buffer[0, 1] = new Cell('B');
 
-        buffer.ScrollUpInRegion(1, 1, 3); // partial region
+        buffer.Region.ScrollUpIn(1, 1, 3); // partial region
 
         Assert.Equal(0, buffer.Scrollback.Count);
     }
@@ -142,7 +142,7 @@ public class ScreenBufferTests
         var buffer = new ScreenBuffer(5, 3, enableScrollback: false);
         buffer[0, 0] = new Cell('A');
 
-        buffer.ScrollUp(1);
+        buffer.Region.ScrollUp(1);
 
         Assert.Equal(0, buffer.Scrollback.Count);
     }
@@ -152,7 +152,7 @@ public class ScreenBufferTests
     {
         var buffer = new ScreenBuffer(5, 3);
         buffer[0, 0] = new Cell('A');
-        buffer.ScrollUp(1); // 1 line in scrollback
+        buffer.Region.ScrollUp(1); // 1 line in scrollback
 
         buffer.Scrollback.ScrollUp(10);
 
@@ -174,7 +174,7 @@ public class ScreenBufferTests
     {
         var buffer = new ScreenBuffer(5, 3);
         buffer[0, 0] = new Cell('A');
-        buffer.ScrollUp(1);
+        buffer.Region.ScrollUp(1);
         buffer.Scrollback.ScrollUp(1);
 
         buffer.Scrollback.ScrollToBottom();
@@ -187,7 +187,7 @@ public class ScreenBufferTests
     {
         var buffer = new ScreenBuffer(5, 3);
         buffer[0, 0] = new Cell('A');
-        buffer.ScrollUp(1);
+        buffer.Region.ScrollUp(1);
         buffer.Scrollback.ScrollUp(1);
 
         var snapshot = buffer.Snapshot();
@@ -202,7 +202,7 @@ public class ScreenBufferTests
         // Put 'X' in row 0
         buffer.WriteRow(0, "XYZ");
         // Scroll up so row 0 goes to scrollback
-        buffer.ScrollUp(1);
+        buffer.Region.ScrollUp(1);
         // Now put 'A' in the new content
         buffer[0, 0] = new Cell('A');
 
@@ -223,7 +223,7 @@ public class ScreenBufferTests
     {
         var buffer = new ScreenBuffer(5, 3);
         buffer[0, 0] = new Cell('A');
-        buffer.ScrollUp(1);
+        buffer.Region.ScrollUp(1);
         buffer.Scrollback.ScrollUp(1);
 
         buffer.Scrollback.Clear();

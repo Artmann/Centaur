@@ -126,8 +126,8 @@ public class VtParserModesTests : VtParserFixture
     {
         Send("\x1b[5;10r"); // 1-based, so 0-based is 4..9
 
-        Assert.Equal(4, buffer.scrollTop);
-        Assert.Equal(9, buffer.scrollBottom);
+        Assert.Equal(4, buffer.Region.Top);
+        Assert.Equal(9, buffer.Region.Bottom);
     }
 
     [Fact]
