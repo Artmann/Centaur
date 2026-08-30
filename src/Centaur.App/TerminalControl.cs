@@ -87,24 +87,24 @@ public class TerminalControl : Control, IPaneTerminal
 
     public event Action? WorkingDirectoryChanged;
 
-    public TerminalControl(string? initialWorkingDirectory = null)
+    public TerminalControl(TerminalServices services, string? initialWorkingDirectory = null)
     {
         this.initialWorkingDirectory = initialWorkingDirectory;
         workingDirectory = initialWorkingDirectory;
-        host = App.Services.GetRequiredService<ExtensionHost>();
-        notifications = App.Services.GetRequiredService<INotificationService>();
-        suggestionState = App.Services.GetRequiredService<SuggestionState>();
-        commandHistory = App.Services.GetRequiredService<CommandHistory>();
-        reverseSearchState = App.Services.GetRequiredService<ReverseSearchState>();
-        settings = App.Services.GetRequiredService<Settings>();
+        host = services.Host;
+        notifications = services.Notifications;
+        suggestionState = services.Suggestions;
+        commandHistory = services.CommandHistory;
+        reverseSearchState = services.ReverseSearch;
+        settings = services.Settings;
 
         var themeProvider = host.GetProvider<IThemeProvider>();
         theme =
             themeProvider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
             ?? CatppuccinThemes.Macchiato;
 
-        profiler = App.Services.GetRequiredService<RenderProfiler>();
-        fpsOverlay = App.Services.GetRequiredService<FpsOverlayExtension>();
+        profiler = services.Profiler;
+        fpsOverlay = services.FpsOverlay;
         renderer = new TerminalRenderer(theme, profiler: profiler);
 
         // Start with a default size; will resize once we know actual bounds
@@ -129,7 +129,20 @@ public class TerminalControl : Control, IPaneTerminal
     ContextMenu BuildContextMenu()
     {
         var menu = new ContextMenu();
-        var context = new MenuContext(this);
+        var context = new TerminalMenuContext
+        {
+            SelectionPresent = () => hasSelection,
+            ReadOnly = () => isReadOnly,
+            ToggleReadOnlyRequested = () =>
+            {
+                isReadOnly = !isReadOnly;
+                MarkDirty();
+            },
+            CopyRequested = CopySelectionToClipboard,
+            PasteRequested = PasteFromClipboard,
+            SplitRequested = direction => this.SplitRequested?.Invoke(direction),
+            CloseRequested = () => this.CloseRequested?.Invoke(),
+        };
 
         menu.Opening += (_, _) =>
         {
@@ -164,33 +177,6 @@ public class TerminalControl : Control, IPaneTerminal
         };
 
         return menu;
-    }
-
-    sealed class MenuContext : ITerminalContextMenuContext
-    {
-        readonly TerminalControl owner;
-
-        public MenuContext(TerminalControl owner)
-        {
-            this.owner = owner;
-        }
-
-        public bool HasSelection => owner.hasSelection;
-        public bool IsReadOnly => owner.isReadOnly;
-
-        public void ToggleReadOnly()
-        {
-            owner.isReadOnly = !owner.isReadOnly;
-            owner.MarkDirty();
-        }
-
-        public void Copy() => owner.CopySelectionToClipboard();
-
-        public void Paste() => owner.PasteFromClipboard();
-
-        public void Split(SplitDirection direction) => owner.SplitRequested?.Invoke(direction);
-
-        public void Close() => owner.CloseRequested?.Invoke();
     }
 
     protected override Size ArrangeOverride(Size finalSize)

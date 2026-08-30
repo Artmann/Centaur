@@ -5,6 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <!-- AVLN3001: a window without a parameterless constructor cannot be built by
+         Avalonia's runtime XAML loader. MainWindow is always constructed by App with its
+         dependencies passed in; adding a parameterless constructor back would mean
+         reaching into the static service provider from inside the window again. -->
+    <NoWarn>$(NoWarn);AVLN3001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

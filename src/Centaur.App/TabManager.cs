@@ -7,6 +7,7 @@ public class TabManager
 {
     readonly Panel contentPanel;
     readonly Action closeWindow;
+    readonly TerminalServices services;
     readonly List<TabItem> tabs = [];
     int nextId = 1;
     int activeTabId = -1;
@@ -16,10 +17,11 @@ public class TabManager
     public event Action? TabsChanged;
     public event Action? LayoutChanged;
 
-    public TabManager(Panel contentPanel, Action closeWindow)
+    public TabManager(Panel contentPanel, Action closeWindow, TerminalServices services)
     {
         this.contentPanel = contentPanel;
         this.closeWindow = closeWindow;
+        this.services = services;
         TabsChanged += () => LayoutChanged?.Invoke();
     }
 
@@ -29,7 +31,7 @@ public class TabManager
         var panes = new PaneTree(
             cwd =>
             {
-                var terminal = new TerminalControl(cwd);
+                var terminal = new TerminalControl(services, cwd);
                 terminal.SplitRequested += direction =>
                 {
                     if (tab == null)

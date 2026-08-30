@@ -29,7 +29,11 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            desktop.MainWindow = new MainWindow(
+                Services.GetRequiredService<TerminalServices>(),
+                Services.GetRequiredService<NotificationServiceExtension>(),
+                Services.GetRequiredService<SessionStore>()
+            );
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -84,6 +88,19 @@ public partial class App : Application
         });
         services.AddSingleton<SettingsExtension>();
         services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SettingsExtension>());
+
+        // The bundle every terminal pane is constructed with.
+        services.AddSingleton(sp => new TerminalServices
+        {
+            Host = sp.GetRequiredService<ExtensionHost>(),
+            Notifications = sp.GetRequiredService<INotificationService>(),
+            Suggestions = sp.GetRequiredService<SuggestionState>(),
+            CommandHistory = sp.GetRequiredService<CommandHistory>(),
+            ReverseSearch = sp.GetRequiredService<ReverseSearchState>(),
+            Settings = sp.GetRequiredService<Settings>(),
+            Profiler = sp.GetRequiredService<RenderProfiler>(),
+            FpsOverlay = sp.GetRequiredService<FpsOverlayExtension>(),
+        });
 
         // Session (tabs/panes/window layout persistence)
         services.AddSingleton(sp =>

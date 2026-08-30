@@ -4,7 +4,6 @@ using Avalonia.Controls.Notifications;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Centaur.Core.Hosting;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Centaur.App;
 
@@ -14,29 +13,32 @@ public partial class MainWindow : Window
     const int bottomPadding = 8;
     const int titleBarHeight = 28;
 
+    readonly ExtensionHost host;
     readonly TabManager tabManager;
     readonly SessionManager sessionManager;
 
-    public MainWindow()
+    public MainWindow(
+        TerminalServices services,
+        NotificationServiceExtension notificationService,
+        SessionStore sessions
+    )
     {
         InitializeComponent();
 
-        var notificationManager = new WindowNotificationManager(this)
-        {
-            Position = NotificationPosition.BottomRight,
-            MaxItems = 3,
-        };
+        host = services.Host;
 
-        var notificationService = App.Services.GetRequiredService<NotificationServiceExtension>();
-        notificationService.SetManager(notificationManager);
-
-        tabManager = new TabManager(contentPanel, Close);
-        sessionManager = new SessionManager(
-            this,
-            tabManager,
-            App.Services.GetRequiredService<SessionStore>(),
-            App.Services.GetRequiredService<INotificationService>()
+        // The notification manager needs a window, so the service cannot be handed one
+        // until now; anything reported before this point is queued and flushed here.
+        notificationService.SetManager(
+            new WindowNotificationManager(this)
+            {
+                Position = NotificationPosition.BottomRight,
+                MaxItems = 3,
+            }
         );
+
+        tabManager = new TabManager(contentPanel, Close, services);
+        sessionManager = new SessionManager(this, tabManager, sessions, services.Notifications);
 
         tabBar.TabSelected += id => tabManager.ActivateTab(id);
         tabBar.NewTabRequested += () => tabManager.CreateTab();
@@ -88,7 +90,6 @@ public partial class MainWindow : Window
 
         Loaded += async (_, _) =>
         {
-            var host = App.Services.GetRequiredService<ExtensionHost>();
             await host.ActivateAsync();
             sessionManager.RestoreTabsOrCreateInitial();
         };
@@ -96,7 +97,6 @@ public partial class MainWindow : Window
         Closed += async (_, _) =>
         {
             sessionManager.FlushPendingSave();
-            var host = App.Services.GetRequiredService<ExtensionHost>();
             await host.DisposeAsync();
         };
     }
