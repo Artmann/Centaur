@@ -7,25 +7,40 @@ public static class PaletteGenerator
     public static uint[] GenerateFullPalette(uint[] base16, uint background, uint foreground)
     {
         var palette = new uint[256];
-
-        // 0-15: copy base16
-        Array.Copy(base16, palette, 16);
-
-        // 16-231: 6x6x6 color cube via trilinear CIELAB interpolation
         var bgLab = RgbToLab(background);
         var fgLab = RgbToLab(foreground);
 
-        // Map base16 ANSI colors to cube corners
-        var cornerLabs = new Lab[8];
-        cornerLabs[0] = bgLab; // (0,0,0) = background
-        cornerLabs[1] = RgbToLab(base16[1]); // (5,0,0) = red
-        cornerLabs[2] = RgbToLab(base16[2]); // (0,5,0) = green
-        cornerLabs[3] = RgbToLab(base16[3]); // (5,5,0) = yellow
-        cornerLabs[4] = RgbToLab(base16[4]); // (0,0,5) = blue
-        cornerLabs[5] = RgbToLab(base16[5]); // (5,0,5) = magenta
-        cornerLabs[6] = RgbToLab(base16[6]); // (0,5,5) = cyan
-        cornerLabs[7] = fgLab; // (5,5,5) = foreground
+        Array.Copy(base16, palette, 16);
+        FillColorCube(palette, CubeCorners(base16, bgLab, fgLab));
+        FillGrayscaleRamp(palette, bgLab, fgLab);
 
+        return palette;
+    }
+
+    /// <summary>
+    /// The eight corners of the 6x6x6 cube, in the order TrilinearInterp expects. The cube
+    /// runs from the theme's background at (0,0,0) to its foreground at (5,5,5), with the
+    /// base16 primaries pinned to the six corners between, so a generated palette stays in
+    /// the theme's own color family rather than reverting to xterm's fixed cube.
+    /// </summary>
+    static Lab[] CubeCorners(uint[] base16, Lab bgLab, Lab fgLab)
+    {
+        return
+        [
+            bgLab, // (0,0,0) = background
+            RgbToLab(base16[1]), // (5,0,0) = red
+            RgbToLab(base16[2]), // (0,5,0) = green
+            RgbToLab(base16[3]), // (5,5,0) = yellow
+            RgbToLab(base16[4]), // (0,0,5) = blue
+            RgbToLab(base16[5]), // (5,0,5) = magenta
+            RgbToLab(base16[6]), // (0,5,5) = cyan
+            fgLab, // (5,5,5) = foreground
+        ];
+    }
+
+    /// <summary>Indices 16-231: the 6x6x6 cube, trilinearly interpolated in CIELAB.</summary>
+    static void FillColorCube(uint[] palette, Lab[] corners)
+    {
         for (int r = 0; r < 6; r++)
         {
             for (int g = 0; g < 6; g++)
@@ -33,22 +48,19 @@ public static class PaletteGenerator
                 for (int b = 0; b < 6; b++)
                 {
                     var index = 16 + (36 * r) + (6 * g) + b;
-                    var tr = r / 5.0;
-                    var tg = g / 5.0;
-                    var tb = b / 5.0;
-                    palette[index] = LabToRgb(TrilinearInterp(cornerLabs, tr, tg, tb));
+                    palette[index] = LabToRgb(TrilinearInterp(corners, r / 5.0, g / 5.0, b / 5.0));
                 }
             }
         }
+    }
 
-        // 232-255: 24-step grayscale ramp from background to foreground
+    /// <summary>Indices 232-255: a 24-step ramp from background to foreground.</summary>
+    static void FillGrayscaleRamp(uint[] palette, Lab bgLab, Lab fgLab)
+    {
         for (int i = 0; i < 24; i++)
         {
-            var t = i / 23.0;
-            palette[232 + i] = LabToRgb(LerpLab(t, bgLab, fgLab));
+            palette[232 + i] = LabToRgb(LerpLab(i / 23.0, bgLab, fgLab));
         }
-
-        return palette;
     }
 
     static Lab TrilinearInterp(Lab[] corners, double tr, double tg, double tb)

@@ -246,7 +246,7 @@ public class TerminalControl : Control, IPaneTerminal
     {
         lock (bufferLock)
         {
-            parser.ActiveBuffer.ScrollToBottom();
+            parser.ActiveBuffer.Scrollback.ScrollToBottom();
         }
         frames.MarkDirty();
     }
@@ -336,11 +336,11 @@ public class TerminalControl : Control, IPaneTerminal
         {
             if (delta > 0)
             {
-                parser.ActiveBuffer.ScrollViewUp(scrollLines);
+                parser.ActiveBuffer.Scrollback.ScrollUp(scrollLines);
             }
             else
             {
-                parser.ActiveBuffer.ScrollViewDown(scrollLines);
+                parser.ActiveBuffer.Scrollback.ScrollDown(scrollLines);
             }
         }
 
@@ -389,11 +389,11 @@ public class TerminalControl : Control, IPaneTerminal
             var page = parser.ActiveBuffer.rows - 1;
             if (up)
             {
-                parser.ActiveBuffer.ScrollViewUp(page);
+                parser.ActiveBuffer.Scrollback.ScrollUp(page);
             }
             else
             {
-                parser.ActiveBuffer.ScrollViewDown(page);
+                parser.ActiveBuffer.Scrollback.ScrollDown(page);
             }
         }
 

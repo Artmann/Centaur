@@ -899,9 +899,9 @@ public class VtParser
 
     void LineFeed()
     {
-        if (buffer.ScrollOffset > 0)
+        if (buffer.Scrollback.Offset > 0)
         {
-            buffer.ScrollToBottom();
+            buffer.Scrollback.ScrollToBottom();
         }
 
         if (buffer.cursorY == buffer.scrollBottom)
@@ -943,7 +943,7 @@ public class VtParser
                 break;
             case 3: // Erase entire screen and scrollback
                 buffer.ClearCells();
-                buffer.ClearScrollback();
+                buffer.Scrollback.Clear();
                 break;
         }
     }

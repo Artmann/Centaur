@@ -8,6 +8,15 @@ public class ScrollbackBuffer
     public int Count { get; private set; }
     public int Capacity { get; }
 
+    /// <summary>How many rows above the live grid the view is currently parked, 0 meaning
+    /// "at the live edge". Lives here rather than on the screen buffer because it is only
+    /// ever meaningful relative to the history this type holds.</summary>
+    public int Offset { get; private set; }
+
+    /// <summary>True when this buffer keeps no history at all - the alternate screen and
+    /// render snapshots both use one.</summary>
+    public bool IsDisabled => Capacity == 0;
+
     public ScrollbackBuffer(int capacity)
     {
         Capacity = capacity;
@@ -16,6 +25,11 @@ public class ScrollbackBuffer
 
     public void PushLine(ReadOnlySpan<Cell> row)
     {
+        if (IsDisabled)
+        {
+            return;
+        }
+
         if (ring[head] == null || ring[head].Length != row.Length)
         {
             ring[head] = new Cell[row.Length];
@@ -37,9 +51,25 @@ public class ScrollbackBuffer
         return ring[ringIndex];
     }
 
+    public void ScrollUp(int lines)
+    {
+        Offset = Math.Min(Offset + lines, Count);
+    }
+
+    public void ScrollDown(int lines)
+    {
+        Offset = Math.Max(Offset - lines, 0);
+    }
+
+    public void ScrollToBottom()
+    {
+        Offset = 0;
+    }
+
     public void Clear()
     {
         Count = 0;
         head = 0;
+        Offset = 0;
     }
 }
