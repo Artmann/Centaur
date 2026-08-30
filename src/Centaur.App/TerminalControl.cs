@@ -44,10 +44,7 @@ public class TerminalControl : Control, IPaneTerminal
     bool ptyStarted;
 
     // Suggestion state
-    readonly SuggestionState suggestionState;
-    ISuggestionProvider? suggestionProvider;
-    int promptEndCol;
-    bool awaitingPrompt = true;
+    readonly InlineSuggestions suggestions;
 
     // Selection state (UI thread only)
     readonly SelectionController selection = new();
@@ -76,7 +73,6 @@ public class TerminalControl : Control, IPaneTerminal
         workingDirectory = initialWorkingDirectory;
         host = services.Host;
         notifications = services.Notifications;
-        suggestionState = services.Suggestions;
         settings = services.Settings;
 
         var themeProvider = host.GetProvider<IThemeProvider>();
@@ -98,6 +94,7 @@ public class TerminalControl : Control, IPaneTerminal
         // it will echo input.
         parser.Respond += RespondToPty;
 
+        suggestions = new InlineSuggestions(services.Suggestions, parser, bufferLock, MarkDirty);
         overlays = new TerminalOverlays(this, services, theme, RunHistoryCommand);
         shortcuts = BuildShortcuts();
 
@@ -197,7 +194,7 @@ public class TerminalControl : Control, IPaneTerminal
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        suggestionProvider = host.GetProvider<ISuggestionProvider>();
+        suggestions.Provider = host.GetProvider<ISuggestionProvider>();
         isAttached = true;
         MarkDirty();
         ScheduleFrame();
@@ -314,10 +311,7 @@ public class TerminalControl : Control, IPaneTerminal
                 parser.Process(segment.Span);
             }
 
-            if (awaitingPrompt)
-            {
-                promptEndCol = parser.ActiveBuffer.cursorX;
-            }
+            suggestions.NoteParsedOutput();
         }
 
         // PTY bytes can change anything visible - buffer contents, cursor visibility
@@ -482,14 +476,13 @@ public class TerminalControl : Control, IPaneTerminal
     /// tab - which is what the user wanted when there is nothing to accept.</summary>
     bool AcceptSuggestion()
     {
-        var (ghost, _, _) = suggestionState.Read();
-        if (string.IsNullOrEmpty(ghost))
+        var ghost = suggestions.TakeGhost();
+        if (ghost == null)
         {
             return false;
         }
 
         SendToPty(Encoding.UTF8.GetBytes(ghost));
-        suggestionState.Clear();
         return true;
     }
 
@@ -527,7 +520,7 @@ public class TerminalControl : Control, IPaneTerminal
             return null;
         }
 
-        suggestionState.Clear();
+        suggestions.Clear();
         return [(byte)(key - Key.A + 1)];
     }
 
@@ -552,7 +545,7 @@ public class TerminalControl : Control, IPaneTerminal
                 or Key.End
         )
         {
-            suggestionState.Clear();
+            suggestions.Clear();
         }
 
         return TerminalKeyEncoder.Encode(key, modifiers);
@@ -562,15 +555,14 @@ public class TerminalControl : Control, IPaneTerminal
     // so history and directory tracking both hang off it.
     void CaptureSubmittedCommand()
     {
-        var input = ExtractUserInput();
+        var input = suggestions.ReadTypedInput();
         if (!string.IsNullOrWhiteSpace(input))
         {
             host.Events.Publish(new CommandSubmittedEvent(input.Trim()));
             TrackDirectoryChange(input.Trim());
         }
 
-        suggestionState.Clear();
-        awaitingPrompt = true;
+        suggestions.NoteCommandSubmitted();
     }
 
     protected override void OnTextInput(TextInputEventArgs e)
@@ -582,72 +574,11 @@ public class TerminalControl : Control, IPaneTerminal
             return;
         }
 
-        awaitingPrompt = false;
-        var bytes = Encoding.UTF8.GetBytes(e.Text);
-        SendToPty(bytes);
-        UpdateSuggestion(e.Text);
+        // Told before the send, so the read thread cannot mistake the echo of what was just
+        // typed for the tail of a prompt.
+        suggestions.NoteTypedText(e.Text);
+        SendToPty(Encoding.UTF8.GetBytes(e.Text));
         e.Handled = true;
-    }
-
-    string ExtractUserInput()
-    {
-        lock (bufferLock)
-        {
-            var buf = parser.ActiveBuffer;
-            var length = buf.cursorX - promptEndCol;
-            if (length <= 0)
-            {
-                return string.Empty;
-            }
-
-            var row = buf.GetRow(buf.cursorY);
-            var chars = new char[length];
-            for (int i = 0; i < length; i++)
-            {
-                chars[i] = row[promptEndCol + i].character;
-            }
-            return new string(chars).TrimEnd();
-        }
-    }
-
-    void UpdateSuggestion(string? appendedText = null)
-    {
-        if (suggestionProvider == null || parser.IsAlternateScreen || awaitingPrompt)
-        {
-            suggestionState.Clear();
-            MarkDirty();
-            return;
-        }
-
-        var input = ExtractUserInput();
-        if (appendedText != null)
-        {
-            input += appendedText;
-        }
-
-        var match = suggestionProvider.GetSuggestion(input);
-        if (match != null && match.Length > input.Length)
-        {
-            var ghost = match.Substring(input.Length);
-            int col;
-            int row;
-            lock (bufferLock)
-            {
-                col = parser.ActiveBuffer.cursorX;
-                row = parser.ActiveBuffer.cursorY;
-            }
-            // Offset by the appended text length since the echo hasn't arrived yet
-            if (appendedText != null)
-            {
-                col += appendedText.Length;
-            }
-            suggestionState.Update(ghost, col, row);
-        }
-        else
-        {
-            suggestionState.Clear();
-        }
-        MarkDirty();
     }
 
     // A command picked out of reverse search is treated exactly like one the user typed:
