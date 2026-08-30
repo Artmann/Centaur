@@ -98,39 +98,49 @@ public class SessionManager
 
         try
         {
-            foreach (var sessionTab in data.Tabs)
-            {
-                var cwd = SessionSnapshot.FirstLeafWorkingDirectory(sessionTab.Root);
-                var tab = tabManager.CreateTab(sessionTab.Title, cwd);
-                SessionSnapshot.RestoreInto(sessionTab.Root, tab.Panes.FocusedLeaf, tab.Panes);
-            }
-
-            if (data.ActiveTabIndex >= 0 && data.ActiveTabIndex < tabManager.Tabs.Count)
-            {
-                tabManager.ActivateTab(tabManager.Tabs[data.ActiveTabIndex].Id);
-            }
+            RestoreTabs(data);
         }
         catch (Exception ex)
         {
-            // Replace whatever partially restored — create the fallback tab first so
-            // TabManager never sees a zero-tab state (which would close the window).
-            var broken = tabManager.Tabs.ToArray();
-            tabManager.CreateTab();
-            foreach (var tab in broken)
-            {
-                tabManager.CloseTab(tab.Id);
-            }
-
-            notifications.Show(
-                "Session Restore Error",
-                $"Your saved tabs and panes couldn't be restored ({ex.Message}). Starting with a blank tab instead.",
-                NotificationSeverity.Warning
-            );
+            StartOverWithBlankTab(ex);
         }
         finally
         {
             isRestoring = false;
         }
+    }
+
+    void RestoreTabs(SessionData data)
+    {
+        foreach (var sessionTab in data.Tabs)
+        {
+            var cwd = SessionSnapshot.FirstLeafWorkingDirectory(sessionTab.Root);
+            var tab = tabManager.CreateTab(sessionTab.Title, cwd);
+            SessionSnapshot.RestoreInto(sessionTab.Root, tab.Panes.FocusedLeaf, tab.Panes);
+        }
+
+        if (data.ActiveTabIndex >= 0 && data.ActiveTabIndex < tabManager.Tabs.Count)
+        {
+            tabManager.ActivateTab(tabManager.Tabs[data.ActiveTabIndex].Id);
+        }
+    }
+
+    /// <summary>Replaces whatever partially restored. The fallback tab is created first so
+    /// TabManager never sees a zero-tab state, which would close the window.</summary>
+    void StartOverWithBlankTab(Exception ex)
+    {
+        var broken = tabManager.Tabs.ToArray();
+        tabManager.CreateTab();
+        foreach (var tab in broken)
+        {
+            tabManager.CloseTab(tab.Id);
+        }
+
+        notifications.Show(
+            "Session Restore Error",
+            $"Your saved tabs and panes couldn't be restored ({ex.Message}). Starting with a blank tab instead.",
+            NotificationSeverity.Warning
+        );
     }
 
     void ScheduleSave()

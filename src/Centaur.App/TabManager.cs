@@ -27,59 +27,17 @@ public class TabManager
 
     public TabItem CreateTab(string? title = null, string? initialWorkingDirectory = null)
     {
-        TabItem? tab = null;
-        var panes = new PaneTree(
-            cwd =>
-            {
-                var terminal = new TerminalControl(services, cwd);
-                terminal.SplitRequested += direction =>
-                {
-                    if (tab == null)
-                    {
-                        return;
-                    }
-                    var leaf = tab.Panes.LeafFor(terminal);
-                    if (leaf != null)
-                    {
-                        tab.Panes.Split(leaf, direction);
-                    }
-                };
-                terminal.CloseRequested += () =>
-                {
-                    if (tab == null)
-                    {
-                        return;
-                    }
-                    var leaf = tab.Panes.LeafFor(terminal);
-                    if (leaf != null)
-                    {
-                        ClosePane(tab, leaf);
-                    }
-                };
-                terminal.PtyExited += () =>
-                {
-                    if (tab == null)
-                    {
-                        return;
-                    }
-                    var leaf = tab.Panes.LeafFor(terminal);
-                    if (leaf != null)
-                    {
-                        ClosePane(tab, leaf);
-                    }
-                };
-                return terminal;
-            },
-            initialWorkingDirectory
-        );
+        var factory = new TabPaneFactory(services, ClosePane);
+        var panes = new PaneTree(factory.Create, initialWorkingDirectory);
         panes.LayoutChanged += () => LayoutChanged?.Invoke();
 
-        tab = new TabItem
+        var tab = new TabItem
         {
             Id = nextId++,
             Title = title ?? $"Terminal {tabs.Count + 1}",
             Panes = panes,
         };
+        factory.Owner = tab;
 
         panes.RootView.IsVisible = false;
         contentPanel.Children.Add(panes.RootView);
