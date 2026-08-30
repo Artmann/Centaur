@@ -129,7 +129,6 @@ public class TerminalControl : Control, IPaneTerminal
 
     ContextMenu BuildContextMenu()
     {
-        var menu = new ContextMenu();
         var context = new TerminalMenuContext
         {
             SelectionPresent = () => selection.HasSelection,
@@ -145,39 +144,7 @@ public class TerminalControl : Control, IPaneTerminal
             CloseRequested = () => this.CloseRequested?.Invoke(),
         };
 
-        menu.Opening += (_, _) =>
-        {
-            menu.Items.Clear();
-
-            var items = host.GetProviders<ITerminalContextMenuProvider>()
-                .SelectMany(p => p.GetItems(context))
-                .Where(i => i.IsVisible)
-                .ToList();
-
-            string? lastGroup = null;
-            foreach (var item in items)
-            {
-                if (lastGroup != null && item.Group != lastGroup)
-                {
-                    menu.Items.Add(new Separator());
-                }
-
-                var menuItem = new MenuItem { Header = item.Label };
-                if (item.IsChecked.HasValue)
-                {
-                    menuItem.ToggleType = MenuItemToggleType.CheckBox;
-                    menuItem.IsChecked = item.IsChecked.Value;
-                }
-
-                var onInvoke = item.OnInvoke;
-                menuItem.Click += (_, _) => onInvoke();
-
-                menu.Items.Add(menuItem);
-                lastGroup = item.Group;
-            }
-        };
-
-        return menu;
+        return TerminalContextMenuBuilder.Create(host, context);
     }
 
     protected override Size ArrangeOverride(Size finalSize)
