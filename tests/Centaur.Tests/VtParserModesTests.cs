@@ -1,27 +1,10 @@
-using System.Text;
 using Centaur.Core.Terminal;
 using Xunit;
 
 namespace Centaur.Tests;
 
-public class VtParserModesTests
+public class VtParserModesTests : VtParserFixture
 {
-    readonly ScreenBuffer buffer;
-    readonly VtParser parser;
-    readonly TerminalTheme theme;
-
-    public VtParserModesTests()
-    {
-        theme = CatppuccinThemes.Macchiato;
-        buffer = new ScreenBuffer(80, 24, theme);
-        parser = new VtParser(buffer, theme);
-    }
-
-    void Send(string text)
-    {
-        parser.Process(Encoding.ASCII.GetBytes(text));
-    }
-
     /// <summary>Writes A, B, C... down column 0 so every row is identifiable after scrolling.</summary>
     void FillColumn()
     {

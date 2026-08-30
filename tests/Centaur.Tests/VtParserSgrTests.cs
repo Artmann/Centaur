@@ -4,24 +4,8 @@ using Xunit;
 
 namespace Centaur.Tests;
 
-public class VtParserSgrTests
+public class VtParserSgrTests : VtParserFixture
 {
-    readonly ScreenBuffer buffer;
-    readonly VtParser parser;
-    readonly TerminalTheme theme;
-
-    public VtParserSgrTests()
-    {
-        theme = CatppuccinThemes.Macchiato;
-        buffer = new ScreenBuffer(80, 24);
-        parser = new VtParser(buffer, theme);
-    }
-
-    void Send(string text)
-    {
-        parser.Process(Encoding.ASCII.GetBytes(text));
-    }
-
     [Fact]
     public void DefaultColors_AreThemeForegroundBackground()
     {

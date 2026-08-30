@@ -35,6 +35,18 @@ static class TerminalTestHelpers
         }
     }
 
+    /// <summary>Write text starting at a column, letting the cursor advance as it would for
+    /// real output — so wrapping and the cursor's end position are whatever the buffer does.</summary>
+    public static void WriteAt(this ScreenBuffer buffer, int startX, int row, string text)
+    {
+        buffer.cursorX = startX;
+        buffer.cursorY = row;
+        foreach (var c in text)
+        {
+            buffer.Write(c);
+        }
+    }
+
     /// <summary>Subscribe to the parser's PTY-bound response channel and
     /// collect each emitted reply as a Latin1 string. Used by DA/DECRQM and
     /// OSC query tests that must reply to the host.</summary>

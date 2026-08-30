@@ -25,19 +25,8 @@ namespace Centaur.Tests;
 ///   VtParser: MouseTrackingMode MouseTracking; bool MouseSgrMode;
 ///       bool FocusEventMode; bool AltScrollMode;
 /// </summary>
-public class VtParserMouseTests
+public class VtParserMouseTests : VtParserFixture
 {
-    readonly ScreenBuffer buffer;
-    readonly VtParser parser;
-    readonly TerminalTheme theme;
-
-    public VtParserMouseTests()
-    {
-        theme = CatppuccinThemes.Macchiato;
-        buffer = new ScreenBuffer(80, 24, theme);
-        parser = new VtParser(buffer, theme);
-    }
-
     // === SGR report encoding ===
 
     [Fact]

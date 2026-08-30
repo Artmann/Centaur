@@ -17,19 +17,8 @@ namespace Centaur.Tests;
 /// { None=0, Single=1, Double=2, Curly=3, Dotted=4, Dashed=5 }, Cell.underline
 /// of that type, and Cell.underlineColor (uint ARGB; 0 = inherit foreground).
 /// </summary>
-public class VtParserUnderlineTests
+public class VtParserUnderlineTests : VtParserFixture
 {
-    readonly ScreenBuffer buffer;
-    readonly VtParser parser;
-    readonly TerminalTheme theme;
-
-    public VtParserUnderlineTests()
-    {
-        theme = CatppuccinThemes.Macchiato;
-        buffer = new ScreenBuffer(80, 24, theme);
-        parser = new VtParser(buffer, theme);
-    }
-
     [Fact]
     public void Underline_Code4_IsSingle()
     {

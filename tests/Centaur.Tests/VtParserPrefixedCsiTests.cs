@@ -12,19 +12,8 @@ namespace Centaur.Tests;
 /// interleaving Claude's redraw with prior shell output. The parser must ignore
 /// the prefixed forms while leaving the unprefixed ANSI commands intact.
 /// </summary>
-public class VtParserPrefixedCsiTests
+public class VtParserPrefixedCsiTests : VtParserFixture
 {
-    readonly ScreenBuffer buffer;
-    readonly VtParser parser;
-    readonly TerminalTheme theme;
-
-    public VtParserPrefixedCsiTests()
-    {
-        theme = CatppuccinThemes.Macchiato;
-        buffer = new ScreenBuffer(80, 24, theme);
-        parser = new VtParser(buffer, theme);
-    }
-
     [Fact]
     public void KittyKeyboardPush_DoesNotMoveCursor()
     {

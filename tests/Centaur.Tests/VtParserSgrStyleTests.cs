@@ -16,19 +16,8 @@ namespace Centaur.Tests;
 /// Intended API (not yet implemented): Cell gains bool fields
 /// bold/faint/italic/blink/inverse/invisible/strikethrough/overline.
 /// </summary>
-public class VtParserSgrStyleTests
+public class VtParserSgrStyleTests : VtParserFixture
 {
-    readonly ScreenBuffer buffer;
-    readonly VtParser parser;
-    readonly TerminalTheme theme;
-
-    public VtParserSgrStyleTests()
-    {
-        theme = CatppuccinThemes.Macchiato;
-        buffer = new ScreenBuffer(80, 24, theme);
-        parser = new VtParser(buffer, theme);
-    }
-
     [Fact]
     public void Sgr_Bold_SetsBold()
     {
