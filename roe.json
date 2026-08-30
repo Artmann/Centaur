@@ -2,7 +2,7 @@
   "deadCode": {
     "ignore": [
       "src/Centaur.App/TabBar.cs",
-      "src/Centaur.Pty.Windows/ConPtyConnection.cs",
+      "src/Centaur.Pty.Windows/Interop.cs",
       "src/Centaur.Core/Hosting/TerminalHooks.cs"
     ]
   }
