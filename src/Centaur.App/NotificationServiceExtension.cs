@@ -8,11 +8,22 @@ public class NotificationServiceExtension : IExtension, INotificationService, IP
 {
     WindowNotificationManager? manager;
 
+    // Notifications raised before the main window exists (settings/session load errors, for
+    // example) are held here and flushed once the manager attaches, so they are never lost.
+    readonly List<Notification> pending = [];
+
     public int Priority => 1000;
 
     public void SetManager(WindowNotificationManager manager)
     {
         this.manager = manager;
+
+        foreach (var notification in pending)
+        {
+            Show(notification);
+        }
+
+        pending.Clear();
     }
 
     public Task ActivateAsync(IExtensionContext context)
@@ -26,11 +37,6 @@ public class NotificationServiceExtension : IExtension, INotificationService, IP
         NotificationSeverity severity = NotificationSeverity.Info
     )
     {
-        if (manager == null)
-        {
-            return;
-        }
-
         var type = severity switch
         {
             NotificationSeverity.Success => NotificationType.Success,
@@ -39,9 +45,28 @@ public class NotificationServiceExtension : IExtension, INotificationService, IP
             _ => NotificationType.Information,
         };
 
+        var notification = new Notification(title, message, type);
+
+        if (manager == null)
+        {
+            pending.Add(notification);
+            return;
+        }
+
+        Show(notification);
+    }
+
+    void Show(Notification notification)
+    {
+        var target = manager;
+        if (target == null)
+        {
+            return;
+        }
+
         Dispatcher.UIThread.Post(() =>
         {
-            manager.Show(new Notification(title, message, type));
+            target.Show(notification);
         });
     }
 
@@ -49,6 +74,7 @@ public class NotificationServiceExtension : IExtension, INotificationService, IP
     {
         GC.SuppressFinalize(this);
         manager = null;
+        pending.Clear();
         return ValueTask.CompletedTask;
     }
 }

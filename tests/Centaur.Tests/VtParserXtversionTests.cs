@@ -1,4 +1,3 @@
-using System.Reflection;
 using Centaur.Core.Terminal;
 using Xunit;
 
@@ -18,21 +17,7 @@ public class VtParserXtversionTests
     // The reported version is tied to the assembly build version (set in
     // Directory.Build.props) rather than a hardcoded literal, so it can't drift.
     // Derive the same value here instead of duplicating the version number.
-    static readonly string expectedReply = $"\x1bP>|Centaur({ResolveVersion()})\x1b\\";
-
-    static string ResolveVersion()
-    {
-        var info = typeof(VtParser)
-            .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion;
-        if (!string.IsNullOrEmpty(info))
-        {
-            var plus = info.IndexOf('+', System.StringComparison.Ordinal);
-            return plus >= 0 ? info[..plus] : info;
-        }
-        var version = typeof(VtParser).Assembly.GetName().Version;
-        return version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "0.0.0";
-    }
+    static readonly string expectedReply = $"\x1bP>|Centaur({VtParser.TerminalVersion})\x1b\\";
 
     public VtParserXtversionTests()
     {

@@ -53,13 +53,11 @@ public partial class App : Application
         );
 
         // Shared command history
-        services.AddSingleton(sp => new CommandHistory(
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Centaur",
-                "command-history.json"
-            )
-        ));
+        services.AddSingleton(sp =>
+        {
+            var path = AppDataPath("command-history.json");
+            return new CommandHistory(path, StorageErrorReporter(sp, "command history", path));
+        });
 
         // Suggestions
         services.AddSingleton<SuggestionState>();
@@ -79,23 +77,45 @@ public partial class App : Application
         services.AddSingleton<IProvider, PaneMenuProvider>();
 
         // Settings
-        services.AddSingleton(sp => new Settings(
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Centaur",
-                "settings.json"
-            )
-        ));
+        services.AddSingleton(sp =>
+        {
+            var path = AppDataPath("settings.json");
+            return new Settings(path, StorageErrorReporter(sp, "settings", path));
+        });
         services.AddSingleton<SettingsExtension>();
         services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SettingsExtension>());
 
         // Session (tabs/panes/window layout persistence)
-        services.AddSingleton(sp => new SessionStore(
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Centaur",
-                "session.json"
-            )
-        ));
+        services.AddSingleton(sp =>
+        {
+            var path = AppDataPath("session.json");
+            return new SessionStore(path, StorageErrorReporter(sp, "session layout", path));
+        });
+    }
+
+    static string AppDataPath(string fileName)
+    {
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Centaur",
+            fileName
+        );
+    }
+
+    /// <summary>
+    /// Surfaces a storage failure as a toast instead of swallowing it. The path is included
+    /// because the usual causes - a corrupt file, a locked file, a full disk - are all things
+    /// the user can only act on if they know which file to look at.
+    /// </summary>
+    static Action<Exception> StorageErrorReporter(IServiceProvider sp, string what, string path)
+    {
+        return ex =>
+            sp.GetRequiredService<INotificationService>()
+                .Show(
+                    $"Could not read or write {what}",
+                    $"{path}: {ex.Message}. Delete or fix that file if the problem persists; "
+                        + $"until then your {what} will not be saved.",
+                    NotificationSeverity.Warning
+                );
     }
 }

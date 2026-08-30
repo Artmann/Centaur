@@ -3,25 +3,8 @@ using Xunit;
 
 namespace Centaur.Tests;
 
-public class CommandHistoryTests : IDisposable
+public class CommandHistoryTests : TempDirectory
 {
-    readonly string tempDir;
-
-    public CommandHistoryTests()
-    {
-        tempDir = Path.Combine(Path.GetTempPath(), "centaur-test-" + Guid.NewGuid());
-        Directory.CreateDirectory(tempDir);
-    }
-
-    public void Dispose()
-    {
-        GC.SuppressFinalize(this);
-        if (Directory.Exists(tempDir))
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
     [Fact]
     public void FindMatch_ReturnsMostRecentMatchingCommand()
     {
@@ -113,7 +96,7 @@ public class CommandHistoryTests : IDisposable
     [Fact]
     public void SaveAndLoad_RoundTrips()
     {
-        var filePath = Path.Combine(tempDir, "history.json");
+        var filePath = Path.Combine(TempDir, "history.json");
 
         var history1 = new CommandHistory(filePath);
         history1.Add("git add .");
@@ -132,7 +115,7 @@ public class CommandHistoryTests : IDisposable
     [Fact]
     public void Load_HandlesCorruptFile()
     {
-        var filePath = Path.Combine(tempDir, "history.json");
+        var filePath = Path.Combine(TempDir, "history.json");
         File.WriteAllText(filePath, "not valid json {{{");
 
         var history = new CommandHistory(filePath);
@@ -144,7 +127,7 @@ public class CommandHistoryTests : IDisposable
     [Fact]
     public void Load_HandlesMissingFile()
     {
-        var filePath = Path.Combine(tempDir, "nonexistent.json");
+        var filePath = Path.Combine(TempDir, "nonexistent.json");
 
         var history = new CommandHistory(filePath);
         history.Load(); // should not throw

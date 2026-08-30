@@ -44,7 +44,7 @@ public class VtParser
 
     // Version reported by XTVERSION. Resolved once from the assembly's build version
     // (set in Directory.Build.props) so it tracks releases instead of a hardcoded literal.
-    static readonly string terminalVersion = ResolveVersion();
+    public static string TerminalVersion { get; } = ResolveVersion();
 
     static string ResolveVersion()
     {
@@ -522,7 +522,7 @@ public class VtParser
             case 'q': // XTVERSION - report terminal name/version (CSI > q)
                 if (csiPrefix == '>' && csiIntermediate == '\0')
                 {
-                    Reply($"\x1bP>|Centaur({terminalVersion})\x1b\\");
+                    Reply($"\x1bP>|Centaur({TerminalVersion})\x1b\\");
                 }
                 break;
         }

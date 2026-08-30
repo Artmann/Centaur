@@ -12,7 +12,7 @@ public enum StartDirectoryMode
 
 public class Settings
 {
-    readonly string? filePath;
+    readonly JsonFileStore<SettingsData> store;
 
     static readonly JsonSerializerOptions jsonOptions = new()
     {
@@ -24,59 +24,34 @@ public class Settings
     public string SpecificFolder { get; set; } = "";
     public string LastFolder { get; set; } = "";
 
-    public Settings(string? filePath = null)
+    public Settings(string? filePath = null, Action<Exception>? onError = null)
     {
-        this.filePath = filePath;
+        store = new JsonFileStore<SettingsData>(filePath, jsonOptions, onError);
     }
 
     public void Load()
     {
-        if (filePath == null || !File.Exists(filePath))
+        var data = store.Load();
+        if (data == null)
         {
             return;
         }
 
-        try
-        {
-            var json = File.ReadAllText(filePath);
-            var data = JsonSerializer.Deserialize<SettingsData>(json, jsonOptions);
-            if (data != null)
-            {
-                StartDirectory = data.StartDirectory;
-                SpecificFolder = data.SpecificFolder ?? "";
-                LastFolder = data.LastFolder ?? "";
-            }
-        }
-        catch
-        {
-            // Corrupt or unreadable file — use defaults
-        }
+        StartDirectory = data.StartDirectory;
+        SpecificFolder = data.SpecificFolder ?? "";
+        LastFolder = data.LastFolder ?? "";
     }
 
     public void Save()
     {
-        if (filePath == null)
-        {
-            return;
-        }
-
-        var dir = Path.GetDirectoryName(filePath);
-        if (dir != null && !Directory.Exists(dir))
-        {
-            Directory.CreateDirectory(dir);
-        }
-
-        var data = new SettingsData
-        {
-            StartDirectory = StartDirectory,
-            SpecificFolder = SpecificFolder,
-            LastFolder = LastFolder,
-        };
-
-        var tempPath = filePath + ".tmp";
-        var json = JsonSerializer.Serialize(data, jsonOptions);
-        File.WriteAllText(tempPath, json);
-        File.Move(tempPath, filePath, overwrite: true);
+        store.Save(
+            new SettingsData
+            {
+                StartDirectory = StartDirectory,
+                SpecificFolder = SpecificFolder,
+                LastFolder = LastFolder,
+            }
+        );
     }
 
     public string? GetStartingDirectory()

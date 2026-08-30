@@ -11,62 +11,10 @@ namespace Centaur.Tests;
 
 public class PaneTreeTests
 {
-    sealed class FakeTerminal : IPaneTerminal
-    {
-        public Control View { get; } = new Panel();
-        public int FocusCalls { get; private set; }
-        public bool Closed { get; private set; }
-        public string? WorkingDirectory { get; private set; }
-
-        public event EventHandler<GotFocusEventArgs>? GotFocus;
-        public event Action? WorkingDirectoryChanged;
-
-        public FakeTerminal(string? workingDirectory = null)
-        {
-            WorkingDirectory = workingDirectory;
-        }
-
-        public bool Focus()
-        {
-            FocusCalls++;
-            return true;
-        }
-
-        public void Close() => Closed = true;
-
-        public void RaiseGotFocus()
-        {
-            GotFocus?.Invoke(this, new GotFocusEventArgs());
-        }
-
-        public void ChangeWorkingDirectory(string directory)
-        {
-            WorkingDirectory = directory;
-            WorkingDirectoryChanged?.Invoke();
-        }
-    }
-
-    static (PaneTree tree, List<FakeTerminal> created) BuildTree(
-        string? initialWorkingDirectory = null
-    )
-    {
-        var created = new List<FakeTerminal>();
-        var tree = new PaneTree(
-            cwd =>
-            {
-                var t = new FakeTerminal(cwd);
-                created.Add(t);
-                return t;
-            },
-            initialWorkingDirectory
-        );
-        return (tree, created);
-    }
-
     [AvaloniaFact]
     public void Initial_tree_is_single_leaf_focused_on_first_terminal()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
 
         Assert.Single(created);
         var leaf = Assert.IsType<LeafPane>(tree.Root);
@@ -77,7 +25,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Initial_rootView_contains_terminal_view()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
 
         Assert.Single(tree.RootView.Children);
         Assert.Same(created[0].View, tree.RootView.Children[0]);
@@ -94,7 +42,7 @@ public class PaneTreeTests
         bool newGoesSecond
     )
     {
-        var (tree, _) = BuildTree();
+        var (tree, _) = FakePaneTerminal.BuildTree();
         var original = (LeafPane)tree.Root;
 
         tree.Split(original, direction);
@@ -116,7 +64,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Split_focuses_and_calls_Focus_on_new_terminal()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var fired = 0;
         tree.FocusedLeafChanged += () => fired++;
 
@@ -132,7 +80,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Split_replaces_root_view_with_split_grid()
     {
-        var (tree, _) = BuildTree();
+        var (tree, _) = FakePaneTerminal.BuildTree();
         var original = (LeafPane)tree.Root;
 
         tree.Split(original, SplitDirection.Right);
@@ -146,7 +94,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Nested_split_in_first_slot_keeps_grandparent_intact()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
 
         tree.Split(initial, SplitDirection.Right); // Root = Split(initial, B)
@@ -171,7 +119,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Nested_split_in_second_slot_replaces_only_the_second_child()
     {
-        var (tree, _) = BuildTree();
+        var (tree, _) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
 
         tree.Split(initial, SplitDirection.Right);
@@ -189,19 +137,19 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void LeafFor_finds_leaf_by_terminal_identity()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
         tree.Split(initial, SplitDirection.Right);
 
         Assert.Same(initial, tree.LeafFor(created[0]));
         Assert.NotNull(tree.LeafFor(created[1]));
-        Assert.Null(tree.LeafFor(new FakeTerminal()));
+        Assert.Null(tree.LeafFor(new FakePaneTerminal()));
     }
 
     [AvaloniaFact]
     public void Close_only_leaf_returns_true_and_disposes_it()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var only = (LeafPane)tree.Root;
 
         var empty = tree.Close(only);
@@ -214,7 +162,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Close_one_of_two_leaves_promotes_sibling_to_root()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var first = (LeafPane)tree.Root;
         tree.Split(first, SplitDirection.Right);
         var second = (LeafPane)((SplitPane)tree.Root).Second;
@@ -232,7 +180,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Close_in_nested_split_promotes_sibling_into_grandparent_slot()
     {
-        var (tree, _) = BuildTree();
+        var (tree, _) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
         tree.Split(initial, SplitDirection.Right);
         var rootSplit = (SplitPane)tree.Root;
@@ -253,7 +201,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Close_focused_leaf_moves_focus_to_first_leaf_of_sibling_subtree()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var first = (LeafPane)tree.Root;
         tree.Split(first, SplitDirection.Right); // focus now on the new (right) leaf
         var second = (LeafPane)((SplitPane)tree.Root).Second;
@@ -266,13 +214,13 @@ public class PaneTreeTests
 
         // Sibling (the top-right leaf) should now be focused
         Assert.Same(siblingOfFocused, tree.FocusedLeaf);
-        Assert.True(((FakeTerminal)((LeafPane)siblingOfFocused).Terminal).FocusCalls >= 1);
+        Assert.True(((FakePaneTerminal)((LeafPane)siblingOfFocused).Terminal).FocusCalls >= 1);
     }
 
     [AvaloniaFact]
     public void Close_unfocused_leaf_keeps_focus_where_it_was()
     {
-        var (tree, _) = BuildTree();
+        var (tree, _) = FakePaneTerminal.BuildTree();
         var first = (LeafPane)tree.Root;
         tree.Split(first, SplitDirection.Right);
         var second = (LeafPane)((SplitPane)tree.Root).Second;
@@ -286,13 +234,13 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void GotFocus_event_updates_focused_leaf_and_fires_change()
     {
-        var (tree, _) = BuildTree();
+        var (tree, _) = FakePaneTerminal.BuildTree();
         var first = (LeafPane)tree.Root;
         tree.Split(first, SplitDirection.Right); // FocusedLeaf is now `second`
         var changes = 0;
         tree.FocusedLeafChanged += () => changes++;
 
-        ((FakeTerminal)first.Terminal).RaiseGotFocus();
+        ((FakePaneTerminal)first.Terminal).RaiseGotFocus();
 
         Assert.Same(first, tree.FocusedLeaf);
         Assert.Equal(1, changes);
@@ -301,7 +249,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void DisposeAll_closes_every_terminal_and_clears_root_view()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
         tree.Split(initial, SplitDirection.Right);
         var rightLeaf = (LeafPane)((SplitPane)tree.Root).Second;
@@ -317,7 +265,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Split_horizontal_places_children_in_columns_0_and_2()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
 
         tree.Split(initial, SplitDirection.Right);
@@ -331,7 +279,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Split_vertical_places_children_in_rows_0_and_2()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
 
         tree.Split(initial, SplitDirection.Down);
@@ -347,7 +295,7 @@ public class PaneTreeTests
     {
         // Sibling moves from a vertical split (Grid.Row=0) into a horizontal split slot
         // — verify Grid.SetColumn is applied so it lands in the right cell.
-        var (tree, _) = BuildTree();
+        var (tree, _) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
         tree.Split(initial, SplitDirection.Right);
         var rightLeaf = (LeafPane)((SplitPane)tree.Root).Second;
@@ -363,7 +311,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Constructor_honors_initial_working_directory()
     {
-        var (tree, created) = BuildTree(@"C:\repo");
+        var (tree, created) = FakePaneTerminal.BuildTree(@"C:\repo");
 
         Assert.Equal(@"C:\repo", created[0].WorkingDirectory);
         Assert.Equal(@"C:\repo", ((LeafPane)tree.Root).Terminal.WorkingDirectory);
@@ -372,7 +320,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Split_returns_new_leaf_and_honors_working_directory()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var original = (LeafPane)tree.Root;
 
         var newLeaf = tree.Split(original, SplitDirection.Right, workingDirectory: @"C:\new");
@@ -387,8 +335,8 @@ public class PaneTreeTests
     [InlineData(Orientation.Vertical)]
     public void SplitPane_ratio_sizes_star_definitions(Orientation orientation)
     {
-        var first = new LeafPane(new FakeTerminal());
-        var second = new LeafPane(new FakeTerminal());
+        var first = new LeafPane(new FakePaneTerminal());
+        var second = new LeafPane(new FakePaneTerminal());
 
         var split = new SplitPane(orientation, first, second, ratio: 0.3);
 
@@ -411,8 +359,8 @@ public class PaneTreeTests
     [InlineData(1)]
     public void SplitPane_clamps_out_of_range_ratios(double ratio)
     {
-        var first = new LeafPane(new FakeTerminal());
-        var second = new LeafPane(new FakeTerminal());
+        var first = new LeafPane(new FakePaneTerminal());
+        var second = new LeafPane(new FakePaneTerminal());
 
         var split = new SplitPane(Orientation.Horizontal, first, second, ratio: ratio);
 
@@ -423,8 +371,8 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void SplitPane_RatioChanged_fires_on_splitter_DragCompleted()
     {
-        var first = new LeafPane(new FakeTerminal());
-        var second = new LeafPane(new FakeTerminal());
+        var first = new LeafPane(new FakePaneTerminal());
+        var second = new LeafPane(new FakePaneTerminal());
         var split = new SplitPane(Orientation.Horizontal, first, second);
         var fired = 0;
         split.RatioChanged += () => fired++;
@@ -444,7 +392,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void PaneTree_LayoutChanged_fires_on_split_and_close()
     {
-        var (tree, _) = BuildTree();
+        var (tree, _) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
         var fired = 0;
         tree.LayoutChanged += () => fired++;
@@ -459,7 +407,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void PaneTree_LayoutChanged_fires_on_leaf_working_directory_change()
     {
-        var (tree, created) = BuildTree();
+        var (tree, created) = FakePaneTerminal.BuildTree();
         var fired = 0;
         tree.LayoutChanged += () => fired++;
 
@@ -471,7 +419,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void PaneTree_LayoutChanged_fires_on_ratio_change_of_new_split()
     {
-        var (tree, _) = BuildTree();
+        var (tree, _) = FakePaneTerminal.BuildTree();
         var initial = (LeafPane)tree.Root;
         tree.Split(initial, SplitDirection.Right);
         var split = (SplitPane)tree.Root;

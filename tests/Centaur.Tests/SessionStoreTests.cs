@@ -4,27 +4,8 @@ using Xunit;
 
 namespace Centaur.Tests;
 
-public class SessionStoreTests : IDisposable
+public class SessionStoreTests : TempDirectory
 {
-    readonly string tempDir;
-
-    public SessionStoreTests()
-    {
-        tempDir = Path.Combine(Path.GetTempPath(), "centaur-test-" + Guid.NewGuid());
-        Directory.CreateDirectory(tempDir);
-    }
-
-    public void Dispose()
-    {
-        GC.SuppressFinalize(this);
-        if (Directory.Exists(tempDir))
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    string TempFile(string name = "session.json") => Path.Combine(tempDir, name);
-
     [Fact]
     public void Load_MissingFile_UsesDefaults()
     {
@@ -40,7 +21,7 @@ public class SessionStoreTests : IDisposable
     [Fact]
     public void Save_And_Load_RoundTrips()
     {
-        var path = TempFile();
+        var path = TempFile("session.json");
         var store = new SessionStore(path);
         store.Data = new SessionData
         {
@@ -89,7 +70,7 @@ public class SessionStoreTests : IDisposable
     [Fact]
     public void Load_CorruptFile_UsesDefaults()
     {
-        var path = TempFile();
+        var path = TempFile("session.json");
         File.WriteAllText(path, "not valid json {{{");
 
         var store = new SessionStore(path);

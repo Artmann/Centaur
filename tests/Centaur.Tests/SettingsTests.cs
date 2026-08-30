@@ -3,27 +3,8 @@ using Xunit;
 
 namespace Centaur.Tests;
 
-public class SettingsTests : IDisposable
+public class SettingsTests : TempDirectory
 {
-    readonly string tempDir;
-
-    public SettingsTests()
-    {
-        tempDir = Path.Combine(Path.GetTempPath(), "centaur-test-" + Guid.NewGuid());
-        Directory.CreateDirectory(tempDir);
-    }
-
-    public void Dispose()
-    {
-        GC.SuppressFinalize(this);
-        if (Directory.Exists(tempDir))
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    string TempFile(string name = "settings.json") => Path.Combine(tempDir, name);
-
     [Fact]
     public void Load_MissingFile_UsesDefaults()
     {
@@ -38,7 +19,7 @@ public class SettingsTests : IDisposable
     [Fact]
     public void Save_And_Load_RoundTrips()
     {
-        var path = TempFile();
+        var path = TempFile("settings.json");
         var settings = new Settings(path);
         settings.StartDirectory = StartDirectoryMode.SpecificFolder;
         settings.SpecificFolder = @"C:\Projects";
@@ -58,9 +39,9 @@ public class SettingsTests : IDisposable
     {
         var settings = new Settings();
         settings.StartDirectory = StartDirectoryMode.LastFolder;
-        settings.LastFolder = tempDir;
+        settings.LastFolder = TempDir;
 
-        Assert.Equal(tempDir, settings.GetStartingDirectory());
+        Assert.Equal(TempDir, settings.GetStartingDirectory());
     }
 
     [Fact]
@@ -88,9 +69,9 @@ public class SettingsTests : IDisposable
     {
         var settings = new Settings();
         settings.StartDirectory = StartDirectoryMode.SpecificFolder;
-        settings.SpecificFolder = tempDir;
+        settings.SpecificFolder = TempDir;
 
-        Assert.Equal(tempDir, settings.GetStartingDirectory());
+        Assert.Equal(TempDir, settings.GetStartingDirectory());
     }
 
     [Fact]
@@ -106,20 +87,20 @@ public class SettingsTests : IDisposable
     [Fact]
     public void UpdateLastFolder_PersistsToDisk()
     {
-        var path = TempFile();
+        var path = TempFile("settings.json");
         var settings = new Settings(path);
-        settings.UpdateLastFolder(tempDir);
+        settings.UpdateLastFolder(TempDir);
 
         var loaded = new Settings(path);
         loaded.Load();
 
-        Assert.Equal(tempDir, loaded.LastFolder);
+        Assert.Equal(TempDir, loaded.LastFolder);
     }
 
     [Fact]
     public void Load_CorruptFile_UsesDefaults()
     {
-        var path = TempFile();
+        var path = TempFile("settings.json");
         File.WriteAllText(path, "not valid json {{{");
 
         var settings = new Settings(path);

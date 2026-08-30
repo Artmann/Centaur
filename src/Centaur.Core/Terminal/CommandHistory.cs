@@ -1,16 +1,14 @@
-using System.Text.Json;
-
 namespace Centaur.Core.Terminal;
 
 public class CommandHistory
 {
     readonly List<string> commands = [];
-    readonly string? filePath;
+    readonly JsonFileStore<List<string>> store;
     const int maxEntries = 1000;
 
-    public CommandHistory(string? filePath = null)
+    public CommandHistory(string? filePath = null, Action<Exception>? onError = null)
     {
-        this.filePath = filePath;
+        store = new JsonFileStore<List<string>>(filePath, onError: onError);
     }
 
     public void Add(string command)
@@ -45,43 +43,18 @@ public class CommandHistory
 
     public void Load()
     {
-        if (filePath == null || !File.Exists(filePath))
+        var loaded = store.Load();
+        if (loaded == null)
         {
             return;
         }
 
-        try
-        {
-            var json = File.ReadAllText(filePath);
-            var loaded = JsonSerializer.Deserialize<List<string>>(json);
-            if (loaded != null)
-            {
-                commands.Clear();
-                commands.AddRange(loaded);
-            }
-        }
-        catch
-        {
-            // Corrupt or unreadable file — start with empty history
-        }
+        commands.Clear();
+        commands.AddRange(loaded);
     }
 
     public void Save()
     {
-        if (filePath == null)
-        {
-            return;
-        }
-
-        var dir = Path.GetDirectoryName(filePath);
-        if (dir != null && !Directory.Exists(dir))
-        {
-            Directory.CreateDirectory(dir);
-        }
-
-        var tempPath = filePath + ".tmp";
-        var json = JsonSerializer.Serialize(commands);
-        File.WriteAllText(tempPath, json);
-        File.Move(tempPath, filePath, overwrite: true);
+        store.Save(commands);
     }
 }

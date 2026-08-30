@@ -4,28 +4,13 @@ public class TerminalEventBus : ITerminalEvents
 {
     readonly Dictionary<Type, List<Delegate>> handlers = [];
 
-    public IDisposable Subscribe<TEvent>(Action<TEvent> handler)
-    {
-        var list = GetOrCreateList<TEvent>();
-        list.Add(handler);
-        return new Subscription(() => list.Remove(handler));
-    }
+    public IDisposable Subscribe<TEvent>(Action<TEvent> handler) => Add<TEvent>(handler);
 
-    public IDisposable Subscribe<TEvent>(Func<TEvent, Task> handler)
-    {
-        var list = GetOrCreateList<TEvent>();
-        list.Add(handler);
-        return new Subscription(() => list.Remove(handler));
-    }
+    public IDisposable Subscribe<TEvent>(Func<TEvent, Task> handler) => Add<TEvent>(handler);
 
     public void Publish<TEvent>(TEvent evt)
     {
-        if (!handlers.TryGetValue(typeof(TEvent), out var list))
-        {
-            return;
-        }
-
-        foreach (var handler in list.ToArray())
+        foreach (var handler in HandlersFor<TEvent>())
         {
             if (handler is Action<TEvent> sync)
             {
@@ -40,12 +25,7 @@ public class TerminalEventBus : ITerminalEvents
 
     public async Task PublishAsync<TEvent>(TEvent evt)
     {
-        if (!handlers.TryGetValue(typeof(TEvent), out var list))
-        {
-            return;
-        }
-
-        foreach (var handler in list.ToArray())
+        foreach (var handler in HandlersFor<TEvent>())
         {
             if (handler is Action<TEvent> sync)
             {
@@ -58,7 +38,7 @@ public class TerminalEventBus : ITerminalEvents
         }
     }
 
-    List<Delegate> GetOrCreateList<TEvent>()
+    Subscription Add<TEvent>(Delegate handler)
     {
         var key = typeof(TEvent);
         if (!handlers.TryGetValue(key, out var list))
@@ -66,7 +46,18 @@ public class TerminalEventBus : ITerminalEvents
             list = [];
             handlers[key] = list;
         }
-        return list;
+
+        list.Add(handler);
+        return new Subscription(() => list.Remove(handler));
+    }
+
+    /// <summary>
+    /// Snapshots the handler list so a handler that subscribes or unsubscribes while being
+    /// invoked cannot mutate the collection we are iterating.
+    /// </summary>
+    Delegate[] HandlersFor<TEvent>()
+    {
+        return handlers.TryGetValue(typeof(TEvent), out var list) ? list.ToArray() : [];
     }
 
     sealed class Subscription(Action unsubscribe) : IDisposable

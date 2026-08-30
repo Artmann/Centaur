@@ -10,47 +10,10 @@ namespace Centaur.Tests;
 
 public class SessionSnapshotTests
 {
-    sealed class FakeTerminal : IPaneTerminal
-    {
-        public Control View { get; } = new Panel();
-        public string? WorkingDirectory { get; private set; }
-
-#pragma warning disable CS0067 // required by IPaneTerminal but unused by these snapshot tests
-        public event EventHandler<GotFocusEventArgs>? GotFocus;
-        public event Action? WorkingDirectoryChanged;
-#pragma warning restore CS0067
-
-        public FakeTerminal(string? workingDirectory = null)
-        {
-            WorkingDirectory = workingDirectory;
-        }
-
-        public bool Focus() => true;
-
-        public void Close() { }
-    }
-
-    static (PaneTree tree, List<FakeTerminal> created) BuildTree(
-        string? initialWorkingDirectory = null
-    )
-    {
-        var created = new List<FakeTerminal>();
-        var tree = new PaneTree(
-            cwd =>
-            {
-                var t = new FakeTerminal(cwd);
-                created.Add(t);
-                return t;
-            },
-            initialWorkingDirectory
-        );
-        return (tree, created);
-    }
-
     [AvaloniaFact]
     public void Capture_single_leaf_returns_leaf_node()
     {
-        var (tree, _) = BuildTree(@"C:\a");
+        var (tree, _) = FakePaneTerminal.BuildTree(@"C:\a");
 
         var node = SessionSnapshot.Capture(tree.Root);
 
@@ -61,7 +24,7 @@ public class SessionSnapshotTests
     [AvaloniaFact]
     public void Capture_restore_round_trips_a_single_split()
     {
-        var (sourceTree, _) = BuildTree(@"C:\a");
+        var (sourceTree, _) = FakePaneTerminal.BuildTree(@"C:\a");
         var initial = (LeafPane)sourceTree.Root;
         sourceTree.Split(initial, SplitDirection.Right, workingDirectory: @"C:\b", ratio: 0.3);
 
@@ -74,7 +37,7 @@ public class SessionSnapshotTests
         Assert.Equal(@"C:\b", captured.Second!.WorkingDirectory);
 
         var cwd = SessionSnapshot.FirstLeafWorkingDirectory(captured);
-        var (targetTree, _) = BuildTree(cwd);
+        var (targetTree, _) = FakePaneTerminal.BuildTree(cwd);
         SessionSnapshot.RestoreInto(captured, (LeafPane)targetTree.Root, targetTree);
 
         var restored = Assert.IsType<SplitPane>(targetTree.Root);
@@ -88,7 +51,7 @@ public class SessionSnapshotTests
     public void Capture_restore_round_trips_a_three_level_nested_mixed_orientation_tree()
     {
         // Root: Horizontal(A, Vertical(B, Horizontal(C, D)))
-        var (sourceTree, _) = BuildTree(@"C:\A");
+        var (sourceTree, _) = FakePaneTerminal.BuildTree(@"C:\A");
         var a = (LeafPane)sourceTree.Root;
         var b = sourceTree.Split(a, SplitDirection.Right, workingDirectory: @"C:\B", ratio: 0.5);
         var c = sourceTree.Split(b, SplitDirection.Down, workingDirectory: @"C:\C", ratio: 0.4);
@@ -96,7 +59,7 @@ public class SessionSnapshotTests
 
         var captured = SessionSnapshot.Capture(sourceTree.Root);
         var cwd = SessionSnapshot.FirstLeafWorkingDirectory(captured);
-        var (targetTree, _) = BuildTree(cwd);
+        var (targetTree, _) = FakePaneTerminal.BuildTree(cwd);
         SessionSnapshot.RestoreInto(captured, (LeafPane)targetTree.Root, targetTree);
 
         var root = Assert.IsType<SplitPane>(targetTree.Root);
@@ -119,7 +82,7 @@ public class SessionSnapshotTests
     [AvaloniaFact]
     public void RestoreInto_throws_when_split_node_is_missing_children()
     {
-        var (targetTree, _) = BuildTree(@"C:\a");
+        var (targetTree, _) = FakePaneTerminal.BuildTree(@"C:\a");
         var malformed = new SessionNode { IsSplit = true, Orientation = Orientation.Horizontal };
 
         Assert.Throws<InvalidOperationException>(() =>
