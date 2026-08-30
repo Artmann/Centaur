@@ -66,6 +66,8 @@ public class TerminalControl : Control, IPaneTerminal
     // Read-only state (per-pane)
     bool isReadOnly;
 
+    readonly KeyShortcutTable shortcuts;
+
     readonly string? initialWorkingDirectory;
     string? workingDirectory;
 
@@ -103,6 +105,8 @@ public class TerminalControl : Control, IPaneTerminal
         // it will echo input.
         parser.Respond += RespondToPty;
 
+        shortcuts = BuildShortcuts();
+
         Focusable = true;
         ClipToBounds = true;
 
@@ -111,6 +115,23 @@ public class TerminalControl : Control, IPaneTerminal
 
     public event Action<SplitDirection>? SplitRequested;
     public event Action? CloseRequested;
+
+    // Ordered: the first entry that accepts the key wins, and anything not claimed here
+    // falls through to the bytes the shell expects. Ctrl+Shift+P sits above the generic
+    // Ctrl+letter path so it isn't swallowed as a control byte.
+    KeyShortcutTable BuildShortcuts()
+    {
+        return new KeyShortcutTable()
+            .Add(Key.PageUp, KeyModifiers.Shift, () => ScrollByPage(up: true))
+            .Add(Key.PageDown, KeyModifiers.Shift, () => ScrollByPage(up: false))
+            .Add(Key.Insert, KeyModifiers.Shift, PasteFromClipboard)
+            .Add(Key.Tab, KeyModifiers.None, AcceptSuggestion)
+            .Add(Key.P, KeyModifiers.Control | KeyModifiers.Shift, ToggleProfiler)
+            .Add(Key.C, KeyModifiers.Control, CopySelectionIfPresent)
+            .Add(Key.V, KeyModifiers.Control, PasteFromClipboard)
+            .Add(Key.R, KeyModifiers.Control, OpenReverseSearch)
+            .Add(Key.OemComma, KeyModifiers.Control, OpenSettings);
+    }
 
     ContextMenu BuildContextMenu()
     {
@@ -447,165 +468,148 @@ public class TerminalControl : Control, IPaneTerminal
     {
         base.OnKeyDown(e);
 
-        if (reverseSearchActive || settingsActive)
+        if (reverseSearchActive || settingsActive || pty == null)
         {
             return;
         }
 
-        if (pty == null)
+        if (shortcuts.TryHandle(e.Key, e.KeyModifiers))
         {
-            return;
-        }
-
-        byte[]? bytes = null;
-
-        // Shift+PageUp/PageDown for scrollback navigation
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && !parser.IsAlternateScreen)
-        {
-            if (e.Key == Key.PageUp)
-            {
-                lock (bufferLock)
-                {
-                    parser.ActiveBuffer.ScrollViewUp(parser.ActiveBuffer.rows - 1);
-                }
-                selection.Clear();
-                MarkDirty();
-                e.Handled = true;
-                return;
-            }
-            if (e.Key == Key.PageDown)
-            {
-                lock (bufferLock)
-                {
-                    parser.ActiveBuffer.ScrollViewDown(parser.ActiveBuffer.rows - 1);
-                }
-                selection.Clear();
-                MarkDirty();
-                e.Handled = true;
-                return;
-            }
-        }
-
-        // Shift+Insert paste
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.Insert)
-        {
-            PasteFromClipboard();
             e.Handled = true;
             return;
         }
 
-        // Accept suggestion with Tab (no modifiers)
-        if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.None)
-        {
-            var (ghost, _, _) = suggestionState.Read();
-            if (!string.IsNullOrEmpty(ghost))
-            {
-                SendToPty(Encoding.UTF8.GetBytes(ghost));
-                suggestionState.Clear();
-                e.Handled = true;
-                return;
-            }
-        }
-
-        // Toggle the render profiler (checked before the generic Ctrl block so the
-        // Ctrl+letter -> control-byte conversion below doesn't swallow it).
-        if (
-            e.KeyModifiers.HasFlag(KeyModifiers.Control)
-            && e.KeyModifiers.HasFlag(KeyModifiers.Shift)
-            && e.Key == Key.P
-        )
-        {
-            profiler.Enabled = !profiler.Enabled;
-            // Profiler overlay visibility just toggled; also flips the heartbeat policy.
-            MarkDirty();
-            notifications.Show(
-                "Render Profiler",
-                profiler.Enabled
-                    ? "Profiling ON — overlay + console dump every 2s. Ctrl+Shift+P to stop."
-                    : "Profiling OFF — final summary written to console.",
-                NotificationSeverity.Info
-            );
-            e.Handled = true;
-            return;
-        }
-
-        // Handle Ctrl+key combinations
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
-        {
-            if (e.Key == Key.C && selection.HasSelection)
-            {
-                CopySelectionToClipboard();
-                e.Handled = true;
-                return;
-            }
-
-            if (e.Key == Key.V)
-            {
-                PasteFromClipboard();
-                e.Handled = true;
-                return;
-            }
-
-            if (e.Key == Key.R)
-            {
-                OpenReverseSearch();
-                e.Handled = true;
-                return;
-            }
-
-            if (e.Key == Key.OemComma)
-            {
-                OpenSettings();
-                e.Handled = true;
-                return;
-            }
-
-            if (e.Key >= Key.A && e.Key <= Key.Z)
-            {
-                // Ctrl+A = 0x01, Ctrl+C (no selection) = 0x03, etc.
-                bytes = new byte[] { (byte)(e.Key - Key.A + 1) };
-                suggestionState.Clear();
-            }
-        }
-        else
-        {
-            // Capture command on Enter before sending to PTY
-            if (e.Key == Key.Enter && !isReadOnly)
-            {
-                var input = ExtractUserInput();
-                if (!string.IsNullOrWhiteSpace(input))
-                {
-                    host.Events.Publish(new CommandSubmittedEvent(input.Trim()));
-                    TrackDirectoryChange(input.Trim());
-                }
-                suggestionState.Clear();
-                awaitingPrompt = true;
-            }
-
-            // Clear suggestion on navigation/editing keys
-            if (
-                e.Key
-                is Key.Up
-                    or Key.Down
-                    or Key.Escape
-                    or Key.Back
-                    or Key.Delete
-                    or Key.Left
-                    or Key.Home
-                    or Key.End
-            )
-            {
-                suggestionState.Clear();
-            }
-
-            bytes = TerminalKeyEncoder.Encode(e.Key, e.KeyModifiers);
-        }
+        var bytes = e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            ? ControlByteFor(e.Key)
+            : EncodeTypedKey(e.Key, e.KeyModifiers);
 
         if (bytes != null)
         {
             SendToPty(bytes);
             e.Handled = true;
         }
+    }
+
+    /// <summary>Scrollback paging. Declines on the alternate screen, which has no scrollback
+    /// and where full-screen programs expect PageUp/PageDown themselves.</summary>
+    bool ScrollByPage(bool up)
+    {
+        if (parser.IsAlternateScreen)
+        {
+            return false;
+        }
+
+        lock (bufferLock)
+        {
+            var page = parser.ActiveBuffer.rows - 1;
+            if (up)
+            {
+                parser.ActiveBuffer.ScrollViewUp(page);
+            }
+            else
+            {
+                parser.ActiveBuffer.ScrollViewDown(page);
+            }
+        }
+
+        selection.Clear();
+        MarkDirty();
+        return true;
+    }
+
+    /// <summary>Tab accepts the inline suggestion, or declines so it reaches the shell as a
+    /// tab - which is what the user wanted when there is nothing to accept.</summary>
+    bool AcceptSuggestion()
+    {
+        var (ghost, _, _) = suggestionState.Read();
+        if (string.IsNullOrEmpty(ghost))
+        {
+            return false;
+        }
+
+        SendToPty(Encoding.UTF8.GetBytes(ghost));
+        suggestionState.Clear();
+        return true;
+    }
+
+    bool CopySelectionIfPresent()
+    {
+        if (!selection.HasSelection)
+        {
+            return false;
+        }
+
+        CopySelectionToClipboard();
+        return true;
+    }
+
+    void ToggleProfiler()
+    {
+        profiler.Enabled = !profiler.Enabled;
+        // Profiler overlay visibility just toggled; also flips the heartbeat policy.
+        MarkDirty();
+        notifications.Show(
+            "Render Profiler",
+            profiler.Enabled
+                ? "Profiling ON — overlay + console dump every 2s. Ctrl+Shift+P to stop."
+                : "Profiling OFF — final summary written to console.",
+            NotificationSeverity.Info
+        );
+    }
+
+    // Ctrl+A is 0x01, Ctrl+C (with nothing selected) 0x03, and so on through Ctrl+Z. Any
+    // other Ctrl combination has no byte of its own and is left unsent.
+    byte[]? ControlByteFor(Key key)
+    {
+        if (key is < Key.A or > Key.Z)
+        {
+            return null;
+        }
+
+        suggestionState.Clear();
+        return [(byte)(key - Key.A + 1)];
+    }
+
+    // The unmodified path. Suggestion bookkeeping happens here rather than in the encoder
+    // because it depends on what the pane knows - the typed line, and whether it is read-only.
+    byte[]? EncodeTypedKey(Key key, KeyModifiers modifiers)
+    {
+        if (key == Key.Enter && !isReadOnly)
+        {
+            CaptureSubmittedCommand();
+        }
+
+        if (
+            key
+            is Key.Up
+                or Key.Down
+                or Key.Escape
+                or Key.Back
+                or Key.Delete
+                or Key.Left
+                or Key.Home
+                or Key.End
+        )
+        {
+            suggestionState.Clear();
+        }
+
+        return TerminalKeyEncoder.Encode(key, modifiers);
+    }
+
+    // Enter is the only moment the typed line is still on screen and known to be complete,
+    // so history and directory tracking both hang off it.
+    void CaptureSubmittedCommand()
+    {
+        var input = ExtractUserInput();
+        if (!string.IsNullOrWhiteSpace(input))
+        {
+            host.Events.Publish(new CommandSubmittedEvent(input.Trim()));
+            TrackDirectoryChange(input.Trim());
+        }
+
+        suggestionState.Clear();
+        awaitingPrompt = true;
     }
 
     protected override void OnTextInput(TextInputEventArgs e)
