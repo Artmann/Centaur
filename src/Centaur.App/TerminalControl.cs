@@ -53,15 +53,10 @@ public class TerminalControl : Control, IPaneTerminal
     readonly SelectionController selection = new();
 
     // Reverse search state
-    readonly CommandHistory commandHistory;
-    readonly ReverseSearchState reverseSearchState;
-    ReverseSearchOverlay? reverseSearchOverlay;
-    bool reverseSearchActive;
+    readonly TerminalOverlays overlays;
 
     // Settings state
     readonly Settings settings;
-    SettingsOverlay? settingsOverlay;
-    bool settingsActive;
 
     // Read-only state (per-pane)
     bool isReadOnly;
@@ -82,8 +77,6 @@ public class TerminalControl : Control, IPaneTerminal
         host = services.Host;
         notifications = services.Notifications;
         suggestionState = services.Suggestions;
-        commandHistory = services.CommandHistory;
-        reverseSearchState = services.ReverseSearch;
         settings = services.Settings;
 
         var themeProvider = host.GetProvider<IThemeProvider>();
@@ -105,6 +98,7 @@ public class TerminalControl : Control, IPaneTerminal
         // it will echo input.
         parser.Respond += RespondToPty;
 
+        overlays = new TerminalOverlays(this, services, theme, RunHistoryCommand);
         shortcuts = BuildShortcuts();
 
         Focusable = true;
@@ -129,8 +123,8 @@ public class TerminalControl : Control, IPaneTerminal
             .Add(Key.P, KeyModifiers.Control | KeyModifiers.Shift, ToggleProfiler)
             .Add(Key.C, KeyModifiers.Control, CopySelectionIfPresent)
             .Add(Key.V, KeyModifiers.Control, PasteFromClipboard)
-            .Add(Key.R, KeyModifiers.Control, OpenReverseSearch)
-            .Add(Key.OemComma, KeyModifiers.Control, OpenSettings);
+            .Add(Key.R, KeyModifiers.Control, overlays.OpenReverseSearch)
+            .Add(Key.OemComma, KeyModifiers.Control, overlays.OpenSettings);
     }
 
     ContextMenu BuildContextMenu()
@@ -468,7 +462,7 @@ public class TerminalControl : Control, IPaneTerminal
     {
         base.OnKeyDown(e);
 
-        if (reverseSearchActive || settingsActive || pty == null)
+        if (overlays.AnyOpen || pty == null)
         {
             return;
         }
@@ -689,72 +683,12 @@ public class TerminalControl : Control, IPaneTerminal
         MarkDirty();
     }
 
-    void OpenReverseSearch()
+    // A command picked out of reverse search is treated exactly like one the user typed:
+    // it joins the history and is sent to the shell with its Enter already attached.
+    void RunHistoryCommand(string command)
     {
-        if (reverseSearchActive)
-        {
-            return;
-        }
-
-        reverseSearchActive = true;
-
-        if (reverseSearchOverlay == null)
-        {
-            reverseSearchOverlay = new ReverseSearchOverlay(reverseSearchState);
-            reverseSearchOverlay.CommandSelected += command =>
-            {
-                CloseReverseSearch();
-                host.Events.Publish(new CommandSubmittedEvent(command));
-                SendToPty(Encoding.UTF8.GetBytes(command + "\r"));
-            };
-            reverseSearchOverlay.CloseRequested += CloseReverseSearch;
-
-            if (Parent is Panel panel)
-            {
-                panel.Children.Add(reverseSearchOverlay);
-            }
-        }
-
-        reverseSearchOverlay.Show(theme, commandHistory.GetAll());
-        host.Events.Publish(new ReverseSearchRequestedEvent());
-    }
-
-    void CloseReverseSearch()
-    {
-        reverseSearchOverlay?.Hide();
-        reverseSearchActive = false;
-        Focus();
-    }
-
-    void OpenSettings()
-    {
-        if (settingsActive)
-        {
-            return;
-        }
-
-        settingsActive = true;
-
-        if (settingsOverlay == null)
-        {
-            settingsOverlay = new SettingsOverlay(settings);
-            settingsOverlay.CloseRequested += CloseSettings;
-
-            if (Parent is Panel panel)
-            {
-                panel.Children.Add(settingsOverlay);
-            }
-        }
-
-        settingsOverlay.Show(theme);
-        host.Events.Publish(new SettingsRequestedEvent());
-    }
-
-    void CloseSettings()
-    {
-        settingsOverlay?.Hide();
-        settingsActive = false;
-        Focus();
+        host.Events.Publish(new CommandSubmittedEvent(command));
+        SendToPty(Encoding.UTF8.GetBytes(command + "\r"));
     }
 
     // The shell never tells us where it is, so we read the submitted command line and
