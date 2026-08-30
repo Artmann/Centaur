@@ -38,8 +38,7 @@ public class TerminalControl : Control, IPaneTerminal
     readonly VtParser parser;
     readonly object bufferLock = new();
 
-    PtySession? pty;
-    bool ptyStarted;
+    readonly ShellChannel shell;
 
     // Suggestion state
     readonly InlineSuggestions suggestions;
@@ -51,27 +50,19 @@ public class TerminalControl : Control, IPaneTerminal
     readonly TerminalOverlays overlays;
 
     // Settings state
-    readonly Settings settings;
 
     // Read-only state (per-pane)
-    bool isReadOnly;
 
     readonly KeyShortcutTable shortcuts;
 
-    readonly string? initialWorkingDirectory;
-    string? workingDirectory;
-
-    public string? WorkingDirectory => workingDirectory;
+    public string? WorkingDirectory => shell.WorkingDirectory;
 
     public event Action? WorkingDirectoryChanged;
 
     public TerminalControl(TerminalServices services, string? initialWorkingDirectory = null)
     {
-        this.initialWorkingDirectory = initialWorkingDirectory;
-        workingDirectory = initialWorkingDirectory;
         host = services.Host;
         notifications = services.Notifications;
-        settings = services.Settings;
 
         theme = ResolveTheme(host);
 
@@ -84,11 +75,16 @@ public class TerminalControl : Control, IPaneTerminal
         initialBuffer = new ScreenBuffer(80, 24, theme);
         parser = new VtParser(initialBuffer, theme);
 
-        // Forward terminal query replies (Device Attributes, DECRQM, OSC color/clipboard)
-        // back to the child process. Without this, capability probes from TUIs such as
-        // Claude Code never get answered, so the app stalls on its startup timeouts before
-        // it will echo input.
-        parser.Respond += RespondToPty;
+        shell = new ShellChannel(
+            notifications,
+            services.Settings,
+            initialWorkingDirectory,
+            ParsePtyOutput,
+            ScrollToLiveEdge
+        );
+        shell.Exited += () => PtyExited?.Invoke();
+        shell.WorkingDirectoryChanged += () => WorkingDirectoryChanged?.Invoke();
+        parser.Respond += shell.Respond;
 
         suggestions = new InlineSuggestions(
             services.Suggestions,
@@ -139,10 +135,10 @@ public class TerminalControl : Control, IPaneTerminal
         var context = new TerminalMenuContext
         {
             SelectionPresent = () => selection.HasSelection,
-            ReadOnly = () => isReadOnly,
+            ReadOnly = () => shell.IsReadOnly,
             ToggleReadOnlyRequested = () =>
             {
-                isReadOnly = !isReadOnly;
+                shell.IsReadOnly = !shell.IsReadOnly;
                 frames.MarkDirty();
             },
             CopyRequested = CopySelectionToClipboard,
@@ -173,10 +169,9 @@ public class TerminalControl : Control, IPaneTerminal
 
         if (newCols == parser.ActiveBuffer.columns && newRows == parser.ActiveBuffer.rows)
         {
-            if (!ptyStarted && frames.Running)
+            if (frames.Running)
             {
-                ptyStarted = true;
-                StartPty();
+                shell.Start(newCols, newRows);
             }
             return;
         }
@@ -188,15 +183,12 @@ public class TerminalControl : Control, IPaneTerminal
 
         frames.MarkDirty();
 
-        if (!ptyStarted && frames.Running)
+        if (frames.Running)
         {
-            ptyStarted = true;
-            StartPty();
+            shell.Start(newCols, newRows);
         }
-        else
-        {
-            pty?.Resize(newCols, newRows);
-        }
+
+        shell.Resize(newCols, newRows);
     }
 
     public event Action? PtyExited;
@@ -227,57 +219,8 @@ public class TerminalControl : Control, IPaneTerminal
             return;
         }
         closed = true;
-        StopPty();
+        shell.Stop();
         renderer.Dispose();
-    }
-
-    async void StartPty()
-    {
-        try
-        {
-            int cols,
-                rows;
-            lock (bufferLock)
-            {
-                cols = parser.ActiveBuffer.columns;
-                rows = parser.ActiveBuffer.rows;
-            }
-
-            var startingDirectory = initialWorkingDirectory ?? settings.GetStartingDirectory();
-            if (startingDirectory != null && !Directory.Exists(startingDirectory))
-            {
-                notifications.Show(
-                    "Starting Directory",
-                    $"Directory \"{startingDirectory}\" not found. Using default instead.",
-                    NotificationSeverity.Warning
-                );
-                startingDirectory = null;
-            }
-            workingDirectory = startingDirectory;
-
-            var options = new PtyOptions(
-                executable: "powershell.exe",
-                columns: cols,
-                rows: rows,
-                workingDirectory: startingDirectory
-            );
-
-            pty = await PtySession.StartAsync(options, ParsePtyOutput, OnPtyExited);
-        }
-        catch (Exception ex)
-        {
-            notifications.Show("PTY Error", ex.Message, NotificationSeverity.Error);
-        }
-    }
-
-    async void StopPty()
-    {
-        var session = pty;
-        pty = null;
-        if (session != null)
-        {
-            await session.DisposeAsync();
-        }
     }
 
     // Called on the PTY read thread for every chunk the shell produced.
@@ -298,7 +241,15 @@ public class TerminalControl : Control, IPaneTerminal
         frames.MarkDirty();
     }
 
-    void OnPtyExited() => Dispatcher.UIThread.Post(() => PtyExited?.Invoke());
+    // Any keystroke the user sends puts them back at the prompt, so the view follows.
+    void ScrollToLiveEdge()
+    {
+        lock (bufferLock)
+        {
+            parser.ActiveBuffer.ScrollToBottom();
+        }
+        frames.MarkDirty();
+    }
 
     (int col, int row) PixelToGrid(Point p)
     {
@@ -402,7 +353,7 @@ public class TerminalControl : Control, IPaneTerminal
     {
         base.OnKeyDown(e);
 
-        if (overlays.AnyOpen || pty == null)
+        if (overlays.AnyOpen || !shell.IsConnected)
         {
             return;
         }
@@ -419,7 +370,7 @@ public class TerminalControl : Control, IPaneTerminal
 
         if (bytes != null)
         {
-            SendToPty(bytes);
+            shell.Send(bytes);
             e.Handled = true;
         }
     }
@@ -461,7 +412,7 @@ public class TerminalControl : Control, IPaneTerminal
             return false;
         }
 
-        SendToPty(Encoding.UTF8.GetBytes(ghost));
+        shell.Send(Encoding.UTF8.GetBytes(ghost));
         return true;
     }
 
@@ -507,7 +458,7 @@ public class TerminalControl : Control, IPaneTerminal
     // because it depends on what the pane knows - the typed line, and whether it is read-only.
     byte[]? EncodeTypedKey(Key key, KeyModifiers modifiers)
     {
-        if (key == Key.Enter && !isReadOnly)
+        if (key == Key.Enter && !shell.IsReadOnly)
         {
             CaptureSubmittedCommand();
         }
@@ -538,7 +489,7 @@ public class TerminalControl : Control, IPaneTerminal
         if (!string.IsNullOrWhiteSpace(input))
         {
             host.Events.Publish(new CommandSubmittedEvent(input.Trim()));
-            TrackDirectoryChange(input.Trim());
+            shell.NoteCommandSubmitted(input.Trim());
         }
 
         suggestions.NoteCommandSubmitted();
@@ -548,7 +499,7 @@ public class TerminalControl : Control, IPaneTerminal
     {
         base.OnTextInput(e);
 
-        if (pty == null || isReadOnly || string.IsNullOrEmpty(e.Text))
+        if (!shell.IsConnected || shell.IsReadOnly || string.IsNullOrEmpty(e.Text))
         {
             return;
         }
@@ -556,7 +507,7 @@ public class TerminalControl : Control, IPaneTerminal
         // Told before the send, so the read thread cannot mistake the echo of what was just
         // typed for the tail of a prompt.
         suggestions.NoteTypedText(e.Text);
-        SendToPty(Encoding.UTF8.GetBytes(e.Text));
+        shell.Send(Encoding.UTF8.GetBytes(e.Text));
         e.Handled = true;
     }
 
@@ -565,72 +516,9 @@ public class TerminalControl : Control, IPaneTerminal
     void RunHistoryCommand(string command)
     {
         host.Events.Publish(new CommandSubmittedEvent(command));
-        SendToPty(Encoding.UTF8.GetBytes(command + "\r"));
+        shell.Send(Encoding.UTF8.GetBytes(command + "\r"));
     }
 
-    // The shell never tells us where it is, so we read the submitted command line and
-    // follow directory changes ourselves. See WorkingDirectoryTracker for the rules.
-    void TrackDirectoryChange(string command)
-    {
-        var targetDir = WorkingDirectoryTracker.Resolve(command, settings.LastFolder);
-        if (targetDir == null)
-        {
-            return;
-        }
-
-        settings.UpdateLastFolder(targetDir);
-        workingDirectory = targetDir;
-        WorkingDirectoryChanged?.Invoke();
-    }
-
-    // Writes parser-generated protocol replies straight to the child process. Unlike
-    // SendToPty this bypasses the read-only gate (these are automatic responses to the
-    // program's own queries, not user input) and does not scroll the view. Invoked from
-    // the read thread inside parser.Process; the write itself targets the input pipe, not
-    // the buffer, so it does not contend with bufferLock.
-    async void RespondToPty(byte[] data)
-    {
-        var connection = pty;
-        if (connection == null)
-        {
-            return;
-        }
-
-        try
-        {
-            await connection.WriteAsync(data);
-        }
-        catch (Exception ex)
-        {
-            notifications.Show("Terminal Error", ex.Message, NotificationSeverity.Error);
-        }
-    }
-
-    async void SendToPty(byte[] data)
-    {
-        var connection = pty;
-        if (connection == null || isReadOnly)
-        {
-            return;
-        }
-
-        lock (bufferLock)
-        {
-            parser.ActiveBuffer.ScrollToBottom();
-        }
-        frames.MarkDirty();
-
-        try
-        {
-            await connection.WriteAsync(data);
-        }
-        catch (Exception ex)
-        {
-            notifications.Show("Input Error", ex.Message, NotificationSeverity.Error);
-        }
-    }
-
-    // TODO: wrap paste in bracketed paste sequences when parser.bracketedPasteMode is true
     async void PasteFromClipboard()
     {
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
@@ -649,7 +537,7 @@ public class TerminalControl : Control, IPaneTerminal
         text = text.Replace("\r\n", "\r").Replace("\n", "\r");
 
         var bytes = Encoding.UTF8.GetBytes(text);
-        SendToPty(bytes);
+        shell.Send(bytes);
     }
 
     async void CopySelectionToClipboard()
@@ -695,7 +583,7 @@ public class TerminalControl : Control, IPaneTerminal
                 selection.Normalized,
                 overlays,
                 cursorVisible: cursorVis,
-                readOnly: isReadOnly
+                readOnly: shell.IsReadOnly
             )
         );
     }
