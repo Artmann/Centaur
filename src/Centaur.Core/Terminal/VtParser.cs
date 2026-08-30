@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace Centaur.Core.Terminal;
 
@@ -7,7 +8,7 @@ public class VtParser
     readonly ScreenBuffer mainBuffer;
     readonly ScreenBuffer alternateBuffer;
     ScreenBuffer buffer;
-    readonly TerminalTheme theme;
+    readonly OscHandler osc;
 
     // Colours and text styles SGR selects, and the cell the erase operations fill with.
     readonly SgrPen pen;
@@ -52,16 +53,20 @@ public class VtParser
     }
 
     // OSC-driven state.
-    public string? WindowTitle { get; private set; } // OSC 0/2
-    public string? IconName { get; private set; } // OSC 0/1
-    public string? WorkingDirectory { get; private set; } // OSC 7
-    public uint[] Palette { get; } = new uint[256]; // OSC 4/104
-    public uint DefaultForeground { get; private set; } // OSC 10
-    public uint DefaultBackground { get; private set; } // OSC 11
-    public int? LastExitCode { get; private set; } // OSC 133;D;<code>
+    public string? WindowTitle => osc.WindowTitle; // OSC 0/2
+    public string? IconName => osc.IconName; // OSC 0/1
+    public string? WorkingDirectory => osc.WorkingDirectory; // OSC 7
+    public uint[] Palette => osc.Palette; // OSC 4/104
+    public uint DefaultForeground => osc.DefaultForeground; // OSC 10
+    public uint DefaultBackground => osc.DefaultBackground; // OSC 11
+    public int? LastExitCode => osc.LastExitCode; // OSC 133;D;<code>
 
     // Fired for OSC 52 clipboard writes/clears (read requests use Respond instead).
-    public event Action<ClipboardRequest>? ClipboardChanged;
+    public event Action<ClipboardRequest>? ClipboardChanged
+    {
+        add => osc.ClipboardChanged += value;
+        remove => osc.ClipboardChanged -= value;
+    }
 
     // Saved cursor state (DECSC/DECRC). Per-screen: the main and alternate buffers
     // each have their own register, matching xterm. A full-screen app's save/restore
@@ -152,15 +157,9 @@ public class VtParser
             enableScrollback: false
         );
         this.buffer = buffer;
-        this.theme = theme;
         pen = new SgrPen(theme);
         blank = new Cell(' ', theme.Foreground, theme.Background);
-        DefaultForeground = theme.Foreground;
-        DefaultBackground = theme.Background;
-        for (int i = 0; i < Palette.Length; i++)
-        {
-            Palette[i] = theme.GetColor(i);
-        }
+        osc = new OscHandler(theme, pen, Reply);
     }
 
     public void Resize(int columns, int rows)
@@ -198,7 +197,7 @@ public class VtParser
                 // ESC \ (ST) terminates the OSC; any other byte just ends it.
                 if (b == (byte)'\\')
                 {
-                    DispatchOsc();
+                    osc.Dispatch(CollectionsMarshal.AsSpan(oscBuffer), buffer);
                 }
                 state = State.Ground;
                 break;
@@ -635,7 +634,7 @@ public class VtParser
         if (b == 0x07)
         {
             // BEL terminates OSC
-            DispatchOsc();
+            osc.Dispatch(CollectionsMarshal.AsSpan(oscBuffer), buffer);
             state = State.Ground;
         }
         else if (b == 0x1B)
@@ -647,214 +646,5 @@ public class VtParser
         {
             oscBuffer.Add(b);
         }
-    }
-
-    void DispatchOsc()
-    {
-        if (oscBuffer.Count == 0)
-        {
-            return;
-        }
-        var text = System.Text.Encoding.UTF8.GetString(oscBuffer.ToArray());
-        var semi = text.IndexOf(';');
-        var codeStr = semi >= 0 ? text[..semi] : text;
-        var rest = semi >= 0 ? text[(semi + 1)..] : "";
-        if (!int.TryParse(codeStr, out var code))
-        {
-            return;
-        }
-
-        switch (code)
-        {
-            case 0: // set both window title and icon name
-                WindowTitle = rest;
-                IconName = rest;
-                break;
-            case 1: // set icon name
-                IconName = rest;
-                break;
-            case 2: // set window title
-                WindowTitle = rest;
-                break;
-            case 4: // set/query a palette color
-                HandleOscPaletteColor(rest);
-                break;
-            case 7: // report working directory
-                WorkingDirectory = rest;
-                break;
-            case 8: // hyperlink
-                HandleOscHyperlink(rest);
-                break;
-            case 10: // set/query default foreground
-                HandleOscDynamicColor(rest, ColorTarget.Foreground);
-                break;
-            case 11: // set/query default background
-                HandleOscDynamicColor(rest, ColorTarget.Background);
-                break;
-            case 52: // clipboard
-                HandleOscClipboard(rest);
-                break;
-            case 104: // reset palette colors
-                HandleOscResetPalette(rest);
-                break;
-            case 133: // semantic prompt mark
-                HandleSemanticPrompt(rest);
-                break;
-        }
-    }
-
-    void HandleOscPaletteColor(string rest)
-    {
-        // "{index};{spec-or-?}"
-        var semi = rest.IndexOf(';');
-        if (semi < 0)
-        {
-            return;
-        }
-        if (!int.TryParse(rest[..semi], out var index) || index < 0 || index >= Palette.Length)
-        {
-            return;
-        }
-        var spec = rest[(semi + 1)..];
-        if (spec == "?")
-        {
-            Reply($"\x1b]4;{index};{FormatColor(Palette[index])}\x07");
-            return;
-        }
-        if (TryParseXColor(spec, out var color))
-        {
-            Palette[index] = color;
-        }
-    }
-
-    void HandleOscResetPalette(string rest)
-    {
-        // "104" alone resets all; "104;n" resets index n to the theme default.
-        if (rest.Length == 0)
-        {
-            for (int i = 0; i < Palette.Length; i++)
-            {
-                Palette[i] = theme.GetColor(i);
-            }
-            return;
-        }
-        if (int.TryParse(rest, out var index) && index >= 0 && index < Palette.Length)
-        {
-            Palette[index] = theme.GetColor(index);
-        }
-    }
-
-    void HandleOscDynamicColor(string spec, ColorTarget target)
-    {
-        if (spec == "?")
-        {
-            var current = target == ColorTarget.Foreground ? DefaultForeground : DefaultBackground;
-            var code = target == ColorTarget.Foreground ? 10 : 11;
-            Reply($"\x1b]{code};{FormatColor(current)}\x07");
-            return;
-        }
-        if (TryParseXColor(spec, out var color))
-        {
-            if (target == ColorTarget.Foreground)
-            {
-                DefaultForeground = color;
-            }
-            else
-            {
-                DefaultBackground = color;
-            }
-        }
-    }
-
-    void HandleOscHyperlink(string rest)
-    {
-        // "8;{params};{uri}" — empty uri ends the current hyperlink.
-        var semi = rest.IndexOf(';');
-        var uri = semi >= 0 ? rest[(semi + 1)..] : "";
-        pen.Hyperlink = uri.Length > 0 ? uri : null;
-    }
-
-    void HandleOscClipboard(string rest)
-    {
-        // "{selection};{base64-or-?}" — selection defaults to 'c'.
-        var semi = rest.IndexOf(';');
-        var selectionField = semi >= 0 ? rest[..semi] : "";
-        var data = semi >= 0 ? rest[(semi + 1)..] : "";
-        var selection = selectionField.Length > 0 ? selectionField[0] : 'c';
-        if (data == "?")
-        {
-            // Read request: reply with empty contents (no clipboard wired yet).
-            Reply($"\x1b]52;{selection};\x07");
-            return;
-        }
-        ClipboardChanged?.Invoke(new ClipboardRequest(selection, data));
-    }
-
-    void HandleSemanticPrompt(string rest)
-    {
-        // rest is "A", "B", "C", or "D[;exitcode]".
-        var kind = rest.Length > 0 ? rest[0] : '\0';
-        switch (kind)
-        {
-            case 'A':
-                buffer.SetMark(buffer.cursorY, PromptMark.Prompt);
-                break;
-            case 'B':
-                buffer.SetMark(buffer.cursorY, PromptMark.Command);
-                break;
-            case 'C':
-                buffer.SetMark(buffer.cursorY, PromptMark.Output);
-                break;
-            case 'D':
-                var semi = rest.IndexOf(';');
-                if (semi >= 0 && int.TryParse(rest[(semi + 1)..], out var exit))
-                {
-                    LastExitCode = exit;
-                }
-                break;
-        }
-    }
-
-    // Parses an X11 "rgb:rr/gg/bb" (or "rrrr/gggg/bbbb") color spec into ARGB.
-    static bool TryParseXColor(string spec, out uint color)
-    {
-        color = 0;
-        if (!spec.StartsWith("rgb:", StringComparison.Ordinal))
-        {
-            return false;
-        }
-        var parts = spec[4..].Split('/');
-        if (parts.Length != 3)
-        {
-            return false;
-        }
-        Span<byte> rgb = stackalloc byte[3];
-        for (int i = 0; i < 3; i++)
-        {
-            var p = parts[i];
-            if (
-                p.Length is < 1 or > 4
-                || !uint.TryParse(p, System.Globalization.NumberStyles.HexNumber, null, out var v)
-            )
-            {
-                return false;
-            }
-            // X11 scales each channel so its width's max maps to 0xff: 1-digit 'f'
-            // -> 0xff (not 0x0f), 4-digit 0xffff -> 0xff, etc. Scale proportionally
-            // with rounding rather than a bare right-shift.
-            var max = (1u << (p.Length * 4)) - 1;
-            rgb[i] = (byte)(((v * 255) + (max / 2)) / max);
-        }
-        color = 0xFF000000u | ((uint)rgb[0] << 16) | ((uint)rgb[1] << 8) | rgb[2];
-        return true;
-    }
-
-    // Formats ARGB as the X11 "rgb:rrrr/gggg/bbbb" reply form (16-bit channels).
-    static string FormatColor(uint argb)
-    {
-        var r = (byte)(argb >> 16);
-        var g = (byte)(argb >> 8);
-        var b = (byte)argb;
-        return $"rgb:{r:x2}{r:x2}/{g:x2}{g:x2}/{b:x2}{b:x2}";
     }
 }
