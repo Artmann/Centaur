@@ -65,10 +65,7 @@ public class ExtensionHostTests
     public async Task ActivateAsync_ActivatesInRegistrationOrder()
     {
         TrackingExtension.ActivationOrder.Clear();
-        var host = new ExtensionHost();
-        host.RegisterExtension(new TrackingExtension("first"));
-        host.RegisterExtension(new TrackingExtension("second"));
-        host.RegisterExtension(new TrackingExtension("third"));
+        var host = HostWith("first", "second", "third");
 
         await host.ActivateAsync();
 
@@ -79,10 +76,7 @@ public class ExtensionHostTests
     public async Task DisposeAsync_DisposesInReverseOrder()
     {
         TrackingExtension.DisposalOrder.Clear();
-        var host = new ExtensionHost();
-        host.RegisterExtension(new TrackingExtension("first"));
-        host.RegisterExtension(new TrackingExtension("second"));
-        host.RegisterExtension(new TrackingExtension("third"));
+        var host = HostWith("first", "second", "third");
 
         await host.ActivateAsync();
         await host.DisposeAsync();
@@ -185,5 +179,16 @@ public class ExtensionHostTests
         await host.DisposeAsync();
 
         Assert.True(shutdownReceived);
+    }
+
+    /// <summary>Builds a host with one TrackingExtension per name, registered in order.</summary>
+    static ExtensionHost HostWith(params string[] names)
+    {
+        var host = new ExtensionHost();
+        foreach (var name in names)
+        {
+            host.RegisterExtension(new TrackingExtension(name));
+        }
+        return host;
     }
 }

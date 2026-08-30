@@ -162,10 +162,7 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Close_one_of_two_leaves_promotes_sibling_to_root()
     {
-        var (tree, created) = FakePaneTerminal.BuildTree();
-        var first = (LeafPane)tree.Root;
-        tree.Split(first, SplitDirection.Right);
-        var second = (LeafPane)((SplitPane)tree.Root).Second;
+        var (tree, created, first, second) = SplitRight();
 
         var empty = tree.Close(second);
 
@@ -180,11 +177,8 @@ public class PaneTreeTests
     [AvaloniaFact]
     public void Close_in_nested_split_promotes_sibling_into_grandparent_slot()
     {
-        var (tree, _) = FakePaneTerminal.BuildTree();
-        var initial = (LeafPane)tree.Root;
-        tree.Split(initial, SplitDirection.Right);
+        var (tree, _, initial, rightLeaf) = SplitRight();
         var rootSplit = (SplitPane)tree.Root;
-        var rightLeaf = (LeafPane)rootSplit.Second;
         tree.Split(rightLeaf, SplitDirection.Down);
         var rightSplit = (SplitPane)rootSplit.Second;
         var bottomLeaf = (LeafPane)rightSplit.Second;
@@ -376,15 +370,7 @@ public class PaneTreeTests
         var split = new SplitPane(Orientation.Horizontal, first, second);
         var fired = 0;
         split.RatioChanged += () => fired++;
-        var splitter = split.GridView.Children.OfType<GridSplitter>().Single();
-
-        splitter.RaiseEvent(
-            new VectorEventArgs
-            {
-                RoutedEvent = Thumb.DragCompletedEvent,
-                Vector = new Vector(20, 0),
-            }
-        );
+        DragSplitter(split);
 
         Assert.Equal(1, fired);
     }
@@ -425,6 +411,32 @@ public class PaneTreeTests
         var split = (SplitPane)tree.Root;
         var fired = 0;
         tree.LayoutChanged += () => fired++;
+        DragSplitter(split);
+
+        Assert.Equal(1, fired);
+    }
+
+    /// <summary>
+    /// Builds a tree and splits the root to the right, the setup most of these tests start from.
+    /// Returns the original (left) leaf and the new (right) leaf, which is the focused one.
+    /// </summary>
+    static (
+        PaneTree tree,
+        List<FakePaneTerminal> created,
+        LeafPane left,
+        LeafPane right
+    ) SplitRight()
+    {
+        var (tree, created) = FakePaneTerminal.BuildTree();
+        var left = (LeafPane)tree.Root;
+        tree.Split(left, SplitDirection.Right);
+        var right = (LeafPane)((SplitPane)tree.Root).Second;
+        return (tree, created, left, right);
+    }
+
+    /// <summary>Completes a drag on the split's GridSplitter, which is what commits a ratio change.</summary>
+    static void DragSplitter(SplitPane split)
+    {
         var splitter = split.GridView.Children.OfType<GridSplitter>().Single();
 
         splitter.RaiseEvent(
@@ -434,7 +446,5 @@ public class PaneTreeTests
                 Vector = new Vector(20, 0),
             }
         );
-
-        Assert.Equal(1, fired);
     }
 }

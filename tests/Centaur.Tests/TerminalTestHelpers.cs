@@ -24,6 +24,17 @@ static class TerminalTestHelpers
         parser.Process(Encoding.UTF8.GetBytes(text));
     }
 
+    /// <summary>Fill a row with one character per column, starting at column 0.
+    /// Cheaper to read than a run of indexer assignments when a test only cares
+    /// that a row is identifiable after scrolling.</summary>
+    public static void WriteRow(this ScreenBuffer buffer, int y, string text)
+    {
+        for (var x = 0; x < text.Length; x++)
+        {
+            buffer[x, y] = new Cell(text[x]);
+        }
+    }
+
     /// <summary>Subscribe to the parser's PTY-bound response channel and
     /// collect each emitted reply as a Latin1 string. Used by DA/DECRQM and
     /// OSC query tests that must reply to the host.</summary>

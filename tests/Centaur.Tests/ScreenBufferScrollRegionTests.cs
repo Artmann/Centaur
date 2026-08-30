@@ -49,88 +49,60 @@ public class ScreenBufferScrollRegionTests
     [Fact]
     public void ScrollUpInRegion_OnlyAffectsRegionRows()
     {
-        // Fill rows with identifiable characters
-        for (int y = 0; y < 10; y++)
-        {
-            buffer[0, y] = new Cell((char)('A' + y));
-        }
+        FillColumn();
 
-        // Scroll within region 3..6 (rows 3,4,5,6)
+        // Scroll within region 3..6 (rows 3,4,5,6); row 6 is left cleared.
         buffer.ScrollUpInRegion(1, 3, 6);
 
-        // Rows outside region unchanged
-        Assert.Equal('A', buffer[0, 0].character);
-        Assert.Equal('B', buffer[0, 1].character);
-        Assert.Equal('C', buffer[0, 2].character);
-        // Region shifted up
-        Assert.Equal('E', buffer[0, 3].character); // was row 4
-        Assert.Equal('F', buffer[0, 4].character); // was row 5
-        Assert.Equal('G', buffer[0, 5].character); // was row 6
-        Assert.Equal(' ', buffer[0, 6].character); // cleared
-        // Rows after region unchanged
-        Assert.Equal('H', buffer[0, 7].character);
-        Assert.Equal('I', buffer[0, 8].character);
-        Assert.Equal('J', buffer[0, 9].character);
+        AssertColumn("ABCEFG HIJ");
     }
 
     [Fact]
     public void ScrollDownInRegion_OnlyAffectsRegionRows()
     {
-        for (int y = 0; y < 10; y++)
-        {
-            buffer[0, y] = new Cell((char)('A' + y));
-        }
+        FillColumn();
 
+        // Region 3..6 shifts down; row 3 is left cleared.
         buffer.ScrollDownInRegion(1, 3, 6);
 
-        // Rows outside region unchanged
-        Assert.Equal('A', buffer[0, 0].character);
-        Assert.Equal('B', buffer[0, 1].character);
-        Assert.Equal('C', buffer[0, 2].character);
-        // Region shifted down
-        Assert.Equal(' ', buffer[0, 3].character); // cleared
-        Assert.Equal('D', buffer[0, 4].character); // was row 3
-        Assert.Equal('E', buffer[0, 5].character); // was row 4
-        Assert.Equal('F', buffer[0, 6].character); // was row 5
-        // Rows after region unchanged
-        Assert.Equal('H', buffer[0, 7].character);
-        Assert.Equal('I', buffer[0, 8].character);
-        Assert.Equal('J', buffer[0, 9].character);
+        AssertColumn("ABC DEFHIJ");
     }
 
     [Fact]
     public void ScrollUpInRegion_MultipleLines()
     {
-        for (int y = 0; y < 10; y++)
-        {
-            buffer[0, y] = new Cell((char)('A' + y));
-        }
+        FillColumn();
 
         buffer.ScrollUpInRegion(2, 2, 5);
 
-        Assert.Equal('A', buffer[0, 0].character);
-        Assert.Equal('B', buffer[0, 1].character);
-        Assert.Equal('E', buffer[0, 2].character); // was row 4
-        Assert.Equal('F', buffer[0, 3].character); // was row 5
-        Assert.Equal(' ', buffer[0, 4].character); // cleared
-        Assert.Equal(' ', buffer[0, 5].character); // cleared
-        Assert.Equal('G', buffer[0, 6].character);
+        AssertColumn("ABEF  GHIJ");
     }
 
     [Fact]
     public void ScrollDownInRegion_ExceedingRegionHeight_ClearsRegion()
     {
+        FillColumn();
+
+        buffer.ScrollDownInRegion(10, 3, 5);
+
+        AssertColumn("ABC   GHIJ");
+    }
+
+    /// <summary>Writes A..J down column 0 so every row is individually identifiable.</summary>
+    void FillColumn()
+    {
         for (int y = 0; y < 10; y++)
         {
             buffer[0, y] = new Cell((char)('A' + y));
         }
+    }
 
-        buffer.ScrollDownInRegion(10, 3, 5);
-
-        Assert.Equal('A', buffer[0, 0].character);
-        Assert.Equal(' ', buffer[0, 3].character);
-        Assert.Equal(' ', buffer[0, 4].character);
-        Assert.Equal(' ', buffer[0, 5].character);
-        Assert.Equal('G', buffer[0, 6].character);
+    /// <summary>Asserts the whole of column 0 at once, one character per row.</summary>
+    void AssertColumn(string expected)
+    {
+        for (int y = 0; y < expected.Length; y++)
+        {
+            Assert.Equal(expected[y], buffer[0, y].character);
+        }
     }
 }

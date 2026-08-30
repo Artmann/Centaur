@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Centaur.Core.Pty;
 using Centaur.Core.Terminal;
 using Centaur.Rendering;
+using SkiaSharp;
 using Xunit;
 
 namespace Centaur.Tests;
@@ -37,11 +38,8 @@ public class TerminalRenderE2ETests
         var row = await WaitForRowAsync(session, line => line == marker, WaitTimeout);
         Assert.True(row >= 0, "marker never appeared on its own output line");
 
-        using var renderer = new TerminalRenderer(theme);
-        var snapshot = session.WithBuffer(b => b.Snapshot());
-        using var bitmap = RenderProbe.RenderToBitmap(snapshot, renderer);
-
-        var background = RenderProbe.ToColor(theme.Background);
+        using var frame = RenderedFrame.Capture(session, theme);
+        var (renderer, bitmap, background) = (frame.Renderer, frame.Bitmap, frame.Background);
 
         // Every glyph in the rendered marker must have drawn ink.
         for (var col = 0; col < marker.Length; col++)
@@ -51,7 +49,7 @@ public class TerminalRenderE2ETests
         }
 
         // A blank cell on the same row stays the theme background.
-        var blank = RenderProbe.CellCenterPixel(bitmap, renderer, snapshot.columns - 1, row);
+        var blank = RenderProbe.CellCenterPixel(bitmap, renderer, frame.Snapshot.columns - 1, row);
         Assert.True(
             RenderProbe.ColorsClose(blank, background),
             $"expected background {background} in a blank cell but got {blank}"
@@ -105,11 +103,8 @@ public class TerminalRenderE2ETests
         var row = await WaitForRowAsync(session, line => line == "RED", WaitTimeout);
         Assert.True(row >= 0, "'RED' never appeared on its own output line");
 
-        using var renderer = new TerminalRenderer(theme);
-        var snapshot = session.WithBuffer(b => b.Snapshot());
-        using var bitmap = RenderProbe.RenderToBitmap(snapshot, renderer);
-
-        var background = RenderProbe.ToColor(theme.Background);
+        using var frame = RenderedFrame.Capture(session, theme);
+        var (renderer, bitmap, background) = (frame.Renderer, frame.Bitmap, frame.Background);
         var ink = RenderProbe.DominantForegroundColor(bitmap, renderer, 0, row, background);
 
         // The rendered ink must be red-dominant — clearly redder than it is green or blue, and
@@ -214,5 +209,36 @@ public class TerminalRenderE2ETests
             chars[x] = row[x].character;
         }
         return new string(chars).TrimEnd();
+    }
+
+    /// <summary>
+    /// A rendered snapshot of the session's current buffer, plus the renderer and background
+    /// colour the pixel probes need to interpret it.
+    /// </summary>
+    sealed class RenderedFrame : IDisposable
+    {
+        public required ScreenBuffer Snapshot { get; init; }
+        public required TerminalRenderer Renderer { get; init; }
+        public required SKBitmap Bitmap { get; init; }
+        public required SKColor Background { get; init; }
+
+        public static RenderedFrame Capture(TerminalSession session, TerminalTheme theme)
+        {
+            var renderer = new TerminalRenderer(theme);
+            var snapshot = session.WithBuffer(b => b.Snapshot());
+            return new RenderedFrame
+            {
+                Snapshot = snapshot,
+                Renderer = renderer,
+                Bitmap = RenderProbe.RenderToBitmap(snapshot, renderer),
+                Background = RenderProbe.ToColor(theme.Background),
+            };
+        }
+
+        public void Dispose()
+        {
+            Bitmap.Dispose();
+            Renderer.Dispose();
+        }
     }
 }

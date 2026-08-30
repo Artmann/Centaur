@@ -93,9 +93,7 @@ public class ScreenBufferTests
     public void ScrollUp_CapturesCorrectContent()
     {
         var buffer = new ScreenBuffer(3, 3);
-        buffer[0, 0] = new Cell('X');
-        buffer[1, 0] = new Cell('Y');
-        buffer[2, 0] = new Cell('Z');
+        buffer.WriteRow(0, "XYZ");
 
         buffer.ScrollUp(1);
 
@@ -202,9 +200,7 @@ public class ScreenBufferTests
     {
         var buffer = new ScreenBuffer(3, 3);
         // Put 'X' in row 0
-        buffer[0, 0] = new Cell('X');
-        buffer[1, 0] = new Cell('Y');
-        buffer[2, 0] = new Cell('Z');
+        buffer.WriteRow(0, "XYZ");
         // Scroll up so row 0 goes to scrollback
         buffer.ScrollUp(1);
         // Now put 'A' in the new content

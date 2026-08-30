@@ -22,6 +22,24 @@ public class VtParserModesTests
         parser.Process(Encoding.ASCII.GetBytes(text));
     }
 
+    /// <summary>Writes A, B, C... down column 0 so every row is identifiable after scrolling.</summary>
+    void FillColumn()
+    {
+        for (int y = 0; y < 24; y++)
+        {
+            buffer[0, y] = new Cell((char)('A' + (y % 26)));
+        }
+    }
+
+    /// <summary>Asserts the leading rows of column 0 at once, one character per row.</summary>
+    void AssertColumn(string expected)
+    {
+        for (int y = 0; y < expected.Length; y++)
+        {
+            Assert.Equal(expected[y], buffer[0, y].character);
+        }
+    }
+
     // === Feature 1: DEC Private Mode Handling ===
 
     [Fact]
@@ -135,11 +153,7 @@ public class VtParserModesTests
         // Set scroll region rows 2..5 (1-based: 3..6)
         Send("\x1b[3;6r");
 
-        // Write identifiable content in each row
-        for (int y = 0; y < 24; y++)
-        {
-            buffer[0, y] = new Cell((char)('A' + (y % 26)));
-        }
+        FillColumn();
 
         // Position cursor at bottom of scroll region (row 5, 0-based)
         buffer.cursorX = 0;
@@ -148,19 +162,8 @@ public class VtParserModesTests
         // Send line feed - should scroll within region
         Send("\n");
 
-        // Row 0,1 untouched (outside region)
-        Assert.Equal('A', buffer[0, 0].character);
-        Assert.Equal('B', buffer[0, 1].character);
-
-        // Region scrolled up: row 2 now has what was in row 3
-        Assert.Equal('D', buffer[0, 2].character);
-        Assert.Equal('E', buffer[0, 3].character);
-        Assert.Equal('F', buffer[0, 4].character);
-        // Row 5 (bottom of region) cleared
-        Assert.Equal(' ', buffer[0, 5].character);
-
-        // Rows after region untouched
-        Assert.Equal('G', buffer[0, 6].character);
+        // Rows outside the region untouched; region scrolled up with row 5 cleared.
+        AssertColumn("ABDEF G");
     }
 
     [Fact]
@@ -168,10 +171,7 @@ public class VtParserModesTests
     {
         Send("\x1b[3;6r"); // region rows 2..5
 
-        for (int y = 0; y < 24; y++)
-        {
-            buffer[0, y] = new Cell((char)('A' + (y % 26)));
-        }
+        FillColumn();
 
         // Position cursor at top of scroll region
         buffer.cursorX = 0;
@@ -180,19 +180,8 @@ public class VtParserModesTests
         // ESC M = Reverse Index
         Send("\x1bM");
 
-        // Rows before region untouched
-        Assert.Equal('A', buffer[0, 0].character);
-        Assert.Equal('B', buffer[0, 1].character);
-
-        // Top of region cleared (new blank line inserted)
-        Assert.Equal(' ', buffer[0, 2].character);
-        // Region shifted down
-        Assert.Equal('C', buffer[0, 3].character);
-        Assert.Equal('D', buffer[0, 4].character);
-        Assert.Equal('E', buffer[0, 5].character);
-
-        // Rows after region untouched
-        Assert.Equal('G', buffer[0, 6].character);
+        // Rows outside the region untouched; region shifted down with row 2 cleared.
+        AssertColumn("AB CDEG");
     }
 
     // === Feature 4: Alternate Screen Buffer ===
