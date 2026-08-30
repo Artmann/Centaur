@@ -22,8 +22,19 @@ public class SessionStoreTests : TempDirectory
     public void Save_And_Load_RoundTrips()
     {
         var path = TempFile("session.json");
-        var store = new SessionStore(path);
-        store.Data = new SessionData
+        var store = new SessionStore(path) { Data = SplitTabSession() };
+        store.Save();
+
+        var loaded = new SessionStore(path);
+        loaded.Load();
+
+        AssertMatchesSplitTabSession(loaded.Data);
+    }
+
+    /// <summary>One maximized window holding a single tab split horizontally in two — every
+    /// field the store persists, each with a value distinguishable from its default.</summary>
+    static SessionData SplitTabSession() =>
+        new()
         {
             ActiveTabIndex = 1,
             WindowX = 10,
@@ -47,24 +58,24 @@ public class SessionStoreTests : TempDirectory
                 },
             ],
         };
-        store.Save();
 
-        var loaded = new SessionStore(path);
-        loaded.Load();
+    static void AssertMatchesSplitTabSession(SessionData data)
+    {
+        Assert.Equal(1, data.ActiveTabIndex);
+        Assert.Equal(10, data.WindowX);
+        Assert.Equal(20, data.WindowY);
+        Assert.Equal(1600, data.WindowWidth);
+        Assert.Equal(900, data.WindowHeight);
+        Assert.True(data.WindowMaximized);
+        Assert.Single(data.Tabs);
 
-        Assert.Equal(1, loaded.Data.ActiveTabIndex);
-        Assert.Equal(10, loaded.Data.WindowX);
-        Assert.Equal(20, loaded.Data.WindowY);
-        Assert.Equal(1600, loaded.Data.WindowWidth);
-        Assert.Equal(900, loaded.Data.WindowHeight);
-        Assert.True(loaded.Data.WindowMaximized);
-        Assert.Single(loaded.Data.Tabs);
-        Assert.Equal("Tab 1", loaded.Data.Tabs[0].Title);
-        Assert.True(loaded.Data.Tabs[0].Root.IsSplit);
-        Assert.Equal(Orientation.Horizontal, loaded.Data.Tabs[0].Root.Orientation);
-        Assert.Equal(0.35, loaded.Data.Tabs[0].Root.Ratio);
-        Assert.Equal(@"C:\a", loaded.Data.Tabs[0].Root.First!.WorkingDirectory);
-        Assert.Equal(@"C:\b", loaded.Data.Tabs[0].Root.Second!.WorkingDirectory);
+        var root = data.Tabs[0].Root;
+        Assert.Equal("Tab 1", data.Tabs[0].Title);
+        Assert.True(root.IsSplit);
+        Assert.Equal(Orientation.Horizontal, root.Orientation);
+        Assert.Equal(0.35, root.Ratio);
+        Assert.Equal(@"C:\a", root.First!.WorkingDirectory);
+        Assert.Equal(@"C:\b", root.Second!.WorkingDirectory);
     }
 
     [Fact]

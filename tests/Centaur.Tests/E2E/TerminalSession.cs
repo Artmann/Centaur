@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text;
 using Centaur.Core.Pty;
 using Centaur.Core.Terminal;
@@ -46,11 +45,11 @@ sealed class TerminalSession : IAsyncDisposable
         var session = new TerminalSession(parser, buffer);
 
         // Same session type the app runs on, with our own spawn so the child does not
-        // inherit the test host's std handles (see SpawnAsync).
+        // inherit the test host's std handles (see NullStdHandleSpawn).
         session.pty = await PtySession.StartAsync(
             options,
             session.ParsePtyOutput,
-            spawn: SpawnAsync
+            spawn: NullStdHandleSpawn.SpawnAsync
         );
 
         // Answer capability probes (Device Attributes, DECRQM, OSC color/clipboard) so the
@@ -126,49 +125,6 @@ sealed class TerminalSession : IAsyncDisposable
     }
 
     void RespondToPty(byte[] data) => _ = SendRawAsync(data);
-
-    // ConPTY connects a spawned child to the pseudoconsole's CONOUT$ only when the child does
-    // not inherit a usable stdout from us (ConPtyConnection calls CreateProcess with
-    // bInheritHandles: true). The real GUI app has null std handles, so that works. But the
-    // `dotnet test` host has its std handles redirected to capture pipes, which the child would
-    // inherit instead — its output would then go to the test runner, not our PTY, and we'd only
-    // ever see conhost's init bytes. We reproduce the GUI app's environment by nulling our std
-    // handles across the spawn, so the inherited child falls through to the pseudoconsole.
-    // SetStdHandle is process-global (and CreateProcess runs on a thread pool thread, where the
-    // handles are still in effect), so we serialize spawns and keep the window as small as possible.
-    const int stdInputHandle = -10;
-    const int stdOutputHandle = -11;
-    const int stdErrorHandle = -12;
-
-    static readonly SemaphoreSlim spawnGate = new(1, 1);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern IntPtr GetStdHandle(int nStdHandle);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern bool SetStdHandle(int nStdHandle, IntPtr hHandle);
-
-    static async Task<ConPtyConnection> SpawnAsync(PtyOptions options)
-    {
-        await spawnGate.WaitAsync();
-        var savedOut = GetStdHandle(stdOutputHandle);
-        var savedErr = GetStdHandle(stdErrorHandle);
-        var savedIn = GetStdHandle(stdInputHandle);
-        try
-        {
-            SetStdHandle(stdOutputHandle, IntPtr.Zero);
-            SetStdHandle(stdErrorHandle, IntPtr.Zero);
-            SetStdHandle(stdInputHandle, IntPtr.Zero);
-            return await ConPtyConnection.CreateAsync(options);
-        }
-        finally
-        {
-            SetStdHandle(stdOutputHandle, savedOut);
-            SetStdHandle(stdErrorHandle, savedErr);
-            SetStdHandle(stdInputHandle, savedIn);
-            spawnGate.Release();
-        }
-    }
 
     // Runs on the PTY read thread; the buffer lock is what makes WithBuffer race-free.
     void ParsePtyOutput(ReadOnlySequence<byte> bytes)
