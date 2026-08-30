@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
-using System.Text;
 
 namespace Centaur.Rendering;
 
@@ -25,17 +23,7 @@ public sealed class RenderProfiler
 
     readonly object gate = new();
 
-    long sumClear,
-        sumBackground,
-        sumGlyphCollect,
-        sumGlyphDraw,
-        sumCursor,
-        sumOverlay,
-        sumTotal,
-        sumSnapshot,
-        sumAllocBytes;
-    int sumGen0;
-    int frameCount;
+    Accumulators sums;
     long windowStartTimestamp;
     long lastDumpTimestamp;
     ProfilerSnapshot display;
@@ -95,7 +83,7 @@ public sealed class RenderProfiler
                     display = default;
                     lastDumpTimestamp = now;
                     enabled = false;
-                    finalDump = FormatDump(snap, "final summary");
+                    finalDump = ProfilerDump.Format(snap, "final summary");
                 }
             }
 
@@ -106,32 +94,13 @@ public sealed class RenderProfiler
         }
     }
 
-    /// <summary>Render thread, once per frame. Arguments are raw <see cref="Stopwatch"/> tick deltas.</summary>
-    public void RecordFrame(
-        long clearTicks,
-        long backgroundTicks,
-        long glyphCollectTicks,
-        long glyphDrawTicks,
-        long cursorTicks,
-        long overlayTicks,
-        long totalTicks,
-        long allocatedBytesDelta,
-        int gen0CollectionsDelta
-    )
+    /// <summary>Render thread, once per frame.</summary>
+    public void RecordFrame(FrameTimings frame)
     {
         ProfilerSnapshot? toDump = null;
         lock (gate)
         {
-            frameCount++;
-            sumClear += clearTicks;
-            sumBackground += backgroundTicks;
-            sumGlyphCollect += glyphCollectTicks;
-            sumGlyphDraw += glyphDrawTicks;
-            sumCursor += cursorTicks;
-            sumOverlay += overlayTicks;
-            sumTotal += totalTicks;
-            sumAllocBytes += allocatedBytesDelta;
-            sumGen0 += gen0CollectionsDelta;
+            sums.Add(frame);
 
             var now = timestampProvider();
             if (now - windowStartTimestamp >= windowTicks)
@@ -149,7 +118,7 @@ public sealed class RenderProfiler
 
         if (toDump is { } d)
         {
-            dumpWriter(FormatDump(d, "frame avg over 0.5s, aggregated across panes"));
+            dumpWriter(ProfilerDump.Format(d, "frame avg over 0.5s, aggregated across panes"));
         }
     }
 
@@ -158,7 +127,7 @@ public sealed class RenderProfiler
     {
         lock (gate)
         {
-            sumSnapshot += snapshotTicks;
+            sums.SnapshotTicks += snapshotTicks;
         }
     }
 
@@ -174,21 +143,21 @@ public sealed class RenderProfiler
     // Caller must hold the lock.
     ProfilerSnapshot ComputeSnapshot(long now)
     {
-        var frames = frameCount;
+        var frames = sums.FrameCount;
         var elapsedSeconds = (now - windowStartTimestamp) / frequency;
         var fps = frames > 0 && elapsedSeconds > 0 ? frames / elapsedSeconds : 0.0;
 
         return new ProfilerSnapshot(
-            ClearMs: MeanMs(sumClear, frames),
-            BackgroundMs: MeanMs(sumBackground, frames),
-            GlyphCollectMs: MeanMs(sumGlyphCollect, frames),
-            GlyphDrawMs: MeanMs(sumGlyphDraw, frames),
-            CursorMs: MeanMs(sumCursor, frames),
-            OverlayMs: MeanMs(sumOverlay, frames),
-            TotalMs: MeanMs(sumTotal, frames),
-            SnapshotMs: MeanMs(sumSnapshot, frames),
-            AllocKbPerFrame: BytesToKb(sumAllocBytes, frames),
-            Gen0PerWindow: sumGen0,
+            ClearMs: MeanMs(sums.ClearTicks, frames),
+            BackgroundMs: MeanMs(sums.BackgroundTicks, frames),
+            GlyphCollectMs: MeanMs(sums.GlyphCollectTicks, frames),
+            GlyphDrawMs: MeanMs(sums.GlyphDrawTicks, frames),
+            CursorMs: MeanMs(sums.CursorTicks, frames),
+            OverlayMs: MeanMs(sums.OverlayTicks, frames),
+            TotalMs: MeanMs(sums.TotalTicks, frames),
+            SnapshotMs: MeanMs(sums.SnapshotTicks, frames),
+            AllocKbPerFrame: ProfilerMath.BytesToKb(sums.AllocatedBytes, frames),
+            Gen0PerWindow: sums.Gen0Collections,
             Fps: fps,
             FrameBudgetMs: FrameBudgetMs
         );
@@ -197,106 +166,42 @@ public sealed class RenderProfiler
     // Caller must hold the lock.
     void ResetWindow(long now)
     {
-        sumClear = 0;
-        sumBackground = 0;
-        sumGlyphCollect = 0;
-        sumGlyphDraw = 0;
-        sumCursor = 0;
-        sumOverlay = 0;
-        sumTotal = 0;
-        sumSnapshot = 0;
-        sumAllocBytes = 0;
-        sumGen0 = 0;
-        frameCount = 0;
+        sums = default;
         windowStartTimestamp = now;
     }
 
-    double MeanMs(long sumTicks, int frames) => Average(sumTicks, frames) / frequency * 1000.0;
+    double MeanMs(long sumTicks, int frames) =>
+        ProfilerMath.Average(sumTicks, frames) / frequency * 1000.0;
 
-    string FormatDump(ProfilerSnapshot s, string header)
+    /// <summary>Running totals for the current window. Reset by assigning <c>default</c>.</summary>
+    struct Accumulators
     {
-        var c = CultureInfo.InvariantCulture;
-        var sb = new StringBuilder();
-        sb.AppendLine(
-            string.Format(
-                c,
-                "[render-profiler] {0} @ {1:F0}fps ({2:F1}ms budget)",
-                header,
-                s.Fps,
-                s.FrameBudgetMs
-            )
-        );
-        sb.AppendLine(string.Format(c, "  snapshot      {0,6:F3}ms", s.SnapshotMs));
-        sb.AppendLine(
-            string.Format(
-                c,
-                "  clear         {0,6:F3}ms ({1,3:F0}%)",
-                s.ClearMs,
-                Percent(s.ClearMs, s.TotalMs)
-            )
-        );
-        sb.AppendLine(
-            string.Format(
-                c,
-                "  background    {0,6:F3}ms ({1,3:F0}%)",
-                s.BackgroundMs,
-                Percent(s.BackgroundMs, s.TotalMs)
-            )
-        );
-        sb.AppendLine(
-            string.Format(
-                c,
-                "  glyphCollect  {0,6:F3}ms ({1,3:F0}%)",
-                s.GlyphCollectMs,
-                Percent(s.GlyphCollectMs, s.TotalMs)
-            )
-        );
-        sb.AppendLine(
-            string.Format(
-                c,
-                "  glyphDraw     {0,6:F3}ms ({1,3:F0}%)",
-                s.GlyphDrawMs,
-                Percent(s.GlyphDrawMs, s.TotalMs)
-            )
-        );
-        sb.AppendLine(
-            string.Format(
-                c,
-                "  cursor        {0,6:F3}ms ({1,3:F0}%)",
-                s.CursorMs,
-                Percent(s.CursorMs, s.TotalMs)
-            )
-        );
-        sb.AppendLine(string.Format(c, "  overlays      {0,6:F3}ms", s.OverlayMs));
-        sb.AppendLine(
-            string.Format(
-                c,
-                "  total         {0,6:F3}ms ({1,3:F0}% of budget)",
-                s.TotalMs,
-                Percent(s.TotalMs, s.FrameBudgetMs)
-            )
-        );
-        sb.Append(
-            string.Format(
-                c,
-                "  alloc         {0:F1} KB/frame, gen0 +{1}",
-                s.AllocKbPerFrame,
-                s.Gen0PerWindow
-            )
-        );
-        return sb.ToString();
+        public int FrameCount;
+        public long ClearTicks;
+        public long BackgroundTicks;
+        public long GlyphCollectTicks;
+        public long GlyphDrawTicks;
+        public long CursorTicks;
+        public long OverlayTicks;
+        public long TotalTicks;
+        public long SnapshotTicks;
+        public long AllocatedBytes;
+        public int Gen0Collections;
+
+        public void Add(FrameTimings frame)
+        {
+            FrameCount++;
+            ClearTicks += frame.ClearTicks;
+            BackgroundTicks += frame.BackgroundTicks;
+            GlyphCollectTicks += frame.GlyphCollectTicks;
+            GlyphDrawTicks += frame.GlyphDrawTicks;
+            CursorTicks += frame.CursorTicks;
+            OverlayTicks += frame.OverlayTicks;
+            TotalTicks += frame.TotalTicks;
+            AllocatedBytes += frame.AllocatedBytesDelta;
+            Gen0Collections += frame.Gen0CollectionsDelta;
+        }
     }
-
-    internal static double TicksToMs(long ticks, double frequency) => ticks / frequency * 1000.0;
-
-    internal static double Average(long sumTicks, int frames) =>
-        frames == 0 ? 0.0 : (double)sumTicks / frames;
-
-    internal static double Percent(double part, double whole) =>
-        whole == 0.0 ? 0.0 : part / whole * 100.0;
-
-    internal static double BytesToKb(long bytes, int frames) =>
-        frames == 0 ? 0.0 : (double)bytes / 1024.0 / frames;
 }
 
 public readonly record struct ProfilerSnapshot(

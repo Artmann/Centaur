@@ -263,16 +263,20 @@ public class TerminalRenderer : IDisposable
         if (profiling)
         {
             var tEnd = Stopwatch.GetTimestamp();
+            // Total spans the whole frame, overlays included, so the per-stage shares add up
+            // and the budget comparison reflects what the frame actually cost.
             profiler!.RecordFrame(
-                clearTicks: t1 - t0,
-                backgroundTicks: t2 - t1,
-                glyphCollectTicks: t3 - t2,
-                glyphDrawTicks: t4 - t3,
-                cursorTicks: t5 - t4,
-                overlayTicks: tEnd - t5,
-                totalTicks: t5 - t0,
-                allocatedBytesDelta: GC.GetAllocatedBytesForCurrentThread() - allocBefore,
-                gen0CollectionsDelta: GC.CollectionCount(0) - gen0Before
+                new FrameTimings(
+                    ClearTicks: t1 - t0,
+                    BackgroundTicks: t2 - t1,
+                    GlyphCollectTicks: t3 - t2,
+                    GlyphDrawTicks: t4 - t3,
+                    CursorTicks: t5 - t4,
+                    OverlayTicks: tEnd - t5,
+                    TotalTicks: tEnd - t0,
+                    AllocatedBytesDelta: GC.GetAllocatedBytesForCurrentThread() - allocBefore,
+                    Gen0CollectionsDelta: GC.CollectionCount(0) - gen0Before
+                )
             );
         }
     }

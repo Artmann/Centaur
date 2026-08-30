@@ -15,45 +15,45 @@ public class RenderProfilerTests
     [Fact]
     public void TicksToMs_ConvertsUsingFrequency()
     {
-        Assert.Equal(1000.0, RenderProfiler.TicksToMs(1000, 1000.0));
-        Assert.Equal(500.0, RenderProfiler.TicksToMs(500, 1000.0));
-        Assert.Equal(0.0, RenderProfiler.TicksToMs(0, 1000.0));
+        Assert.Equal(1000.0, ProfilerMath.TicksToMs(1000, 1000.0));
+        Assert.Equal(500.0, ProfilerMath.TicksToMs(500, 1000.0));
+        Assert.Equal(0.0, ProfilerMath.TicksToMs(0, 1000.0));
     }
 
     [Fact]
     public void Average_ZeroFrames_ReturnsZero()
     {
-        Assert.Equal(0.0, RenderProfiler.Average(300, 0));
+        Assert.Equal(0.0, ProfilerMath.Average(300, 0));
     }
 
     [Fact]
     public void Average_ComputesMeanTicks()
     {
-        Assert.Equal(100.0, RenderProfiler.Average(300, 3));
+        Assert.Equal(100.0, ProfilerMath.Average(300, 3));
     }
 
     [Fact]
     public void Percent_ZeroWhole_ReturnsZero()
     {
-        Assert.Equal(0.0, RenderProfiler.Percent(25, 0));
+        Assert.Equal(0.0, ProfilerMath.Percent(25, 0));
     }
 
     [Fact]
     public void Percent_ComputesRatio()
     {
-        Assert.Equal(25.0, RenderProfiler.Percent(25, 100));
+        Assert.Equal(25.0, ProfilerMath.Percent(25, 100));
     }
 
     [Fact]
     public void BytesToKb_ZeroFrames_ReturnsZero()
     {
-        Assert.Equal(0.0, RenderProfiler.BytesToKb(2048, 0));
+        Assert.Equal(0.0, ProfilerMath.BytesToKb(2048, 0));
     }
 
     [Fact]
     public void BytesToKb_DividesByFrames()
     {
-        Assert.Equal(1.0, RenderProfiler.BytesToKb(2048, 2));
+        Assert.Equal(1.0, ProfilerMath.BytesToKb(2048, 2));
     }
 
     [Fact]
@@ -234,15 +234,17 @@ public class RenderProfilerTests
     )
     {
         profiler.RecordFrame(
-            clearTicks: 0,
-            backgroundTicks: 0,
-            glyphCollectTicks: 0,
-            glyphDrawTicks: 0,
-            cursorTicks: 0,
-            overlayTicks: 0,
-            totalTicks: totalTicks,
-            allocatedBytesDelta: allocBytes,
-            gen0CollectionsDelta: gen0
+            new FrameTimings(
+                ClearTicks: 0,
+                BackgroundTicks: 0,
+                GlyphCollectTicks: 0,
+                GlyphDrawTicks: 0,
+                CursorTicks: 0,
+                OverlayTicks: 0,
+                TotalTicks: totalTicks,
+                AllocatedBytesDelta: allocBytes,
+                Gen0CollectionsDelta: gen0
+            )
         );
     }
 }

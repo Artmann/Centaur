@@ -21,6 +21,11 @@ public class ProfilerOverlayExtension : IExtension, IRenderOverlay
     static readonly CompositeFormat gen0Format = CompositeFormat.Parse("gen0 +{0}  ({1:F0} fps)");
     static readonly CompositeFormat sampleFormat = CompositeFormat.Parse("{0,-12}{1,7:F3}ms ");
 
+    // Panel geometry, in device-independent pixels.
+    const float padding = 6f;
+    const float barGap = 12f;
+    const float barMaxWidth = 110f;
+
     readonly RenderProfiler profiler;
 
     SKPaint? textPaint;
@@ -32,8 +37,8 @@ public class ProfilerOverlayExtension : IExtension, IRenderOverlay
     // font creation rather than once per frame.
     float labelColWidth;
 
-    // Reused row scratch buffer to avoid the per-frame tuple-array allocation.
-    readonly Row[] rows = new Row[7];
+    // Reused scratch buffer to avoid the per-frame array allocation.
+    readonly ProfilerStage[] stages = new ProfilerStage[ProfilerStages.Count];
 
     public ProfilerOverlayExtension(RenderProfiler profiler)
     {
@@ -65,75 +70,86 @@ public class ProfilerOverlayExtension : IExtension, IRenderOverlay
         }
 
         var s = profiler.GetDisplaySnapshot();
-        if (font == null)
-        {
-            font = new SKFont(typeface, baseFont.Size * 0.85f);
-            labelColWidth = font.MeasureText(
-                string.Format(CultureInfo.InvariantCulture, sampleFormat, "", 0.0)
-            );
-        }
+        EnsureFont(baseFont, typeface);
+        ProfilerStages.Fill(stages, s);
 
-        var c = CultureInfo.InvariantCulture;
-        var lineHeight = font.Size * 1.4f;
-        var padding = 6f;
-
-        // -1 in `pct` means "skip the bar for this row".
-        rows[0] = new Row("snapshot", s.SnapshotMs, -1);
-        rows[1] = new Row("clear", s.ClearMs, RenderProfiler.Percent(s.ClearMs, s.TotalMs));
-        rows[2] = new Row(
-            "background",
-            s.BackgroundMs,
-            RenderProfiler.Percent(s.BackgroundMs, s.TotalMs)
-        );
-        rows[3] = new Row(
-            "glyphCollect",
-            s.GlyphCollectMs,
-            RenderProfiler.Percent(s.GlyphCollectMs, s.TotalMs)
-        );
-        rows[4] = new Row(
-            "glyphDraw",
-            s.GlyphDrawMs,
-            RenderProfiler.Percent(s.GlyphDrawMs, s.TotalMs)
-        );
-        rows[5] = new Row("cursor", s.CursorMs, RenderProfiler.Percent(s.CursorMs, s.TotalMs));
-        rows[6] = new Row("overlays", s.OverlayMs, -1);
-
-        var x = padding;
-        var barGap = 12f;
-        var barMaxWidth = 110f;
-        var barX = x + labelColWidth + barGap;
-
-        var lineCount = rows.Length + 3; // rows + total + alloc + gen0
-        var panelWidth = barX + barMaxWidth + padding;
-        var panelHeight = lineHeight * lineCount + padding * 2;
+        var lineHeight = font!.Size * 1.4f;
+        var barX = padding + labelColWidth + barGap;
 
         bgPaint.Color = new SKColor(theme.Background).WithAlpha(220);
-        canvas.DrawRect(0, 0, panelWidth, panelHeight, bgPaint);
+        canvas.DrawRect(
+            0,
+            0,
+            barX + barMaxWidth + padding,
+            // stages + total + alloc + gen0
+            lineHeight * (stages.Length + 3)
+                + padding * 2,
+            bgPaint
+        );
 
         var y = padding + font.Size;
+        y = DrawStages(canvas, theme, barX, lineHeight, y);
+        DrawSummary(canvas, theme, s, lineHeight, y);
+    }
 
-        textPaint.Color = new SKColor(theme.Foreground);
-        for (var i = 0; i < rows.Length; i++)
+    /// <summary>Lazily builds the panel font and the label-column width it implies.</summary>
+    void EnsureFont(SKFont baseFont, SKTypeface typeface)
+    {
+        if (font != null)
         {
-            var row = rows[i];
-            var text = string.Format(c, rowFormat, row.Label, row.Ms);
-            canvas.DrawText(text, x, y, font, textPaint);
+            return;
+        }
 
-            if (row.Pct >= 0)
+        font = new SKFont(typeface, baseFont.Size * 0.85f);
+        labelColWidth = font.MeasureText(
+            string.Format(CultureInfo.InvariantCulture, sampleFormat, "", 0.0)
+        );
+    }
+
+    /// <summary>Draws one row per stage, with a share bar for the stages that have one.
+    /// Returns the baseline for the first summary row.</summary>
+    float DrawStages(SKCanvas canvas, TerminalTheme theme, float barX, float lineHeight, float y)
+    {
+        textPaint!.Color = new SKColor(theme.Foreground);
+        foreach (var stage in stages)
+        {
+            var text = string.Format(
+                CultureInfo.InvariantCulture,
+                rowFormat,
+                stage.Label,
+                stage.Ms
+            );
+            canvas.DrawText(text, padding, y, font, textPaint);
+
+            if (stage.Share is { } share)
             {
-                barPaint.Color = new SKColor(theme.Palette[4]);
-                var w = (float)(barMaxWidth * Math.Clamp(row.Pct / 100.0, 0, 1));
-                canvas.DrawRect(barX, y - font.Size * 0.8f, w, font.Size * 0.7f, barPaint);
+                barPaint!.Color = new SKColor(theme.Palette[4]);
+                var w = (float)(barMaxWidth * Math.Clamp(share / 100.0, 0, 1));
+                canvas.DrawRect(barX, y - font!.Size * 0.8f, w, font.Size * 0.7f, barPaint);
             }
 
             y += lineHeight;
         }
 
+        return y;
+    }
+
+    /// <summary>Draws the frame total (red once over budget) and the allocation rows.</summary>
+    void DrawSummary(
+        SKCanvas canvas,
+        TerminalTheme theme,
+        ProfilerSnapshot s,
+        float lineHeight,
+        float y
+    )
+    {
+        var c = CultureInfo.InvariantCulture;
         var overBudget = s.TotalMs > s.FrameBudgetMs;
-        textPaint.Color = new SKColor(overBudget ? theme.Palette[1] : theme.Palette[2]);
+
+        textPaint!.Color = new SKColor(overBudget ? theme.Palette[1] : theme.Palette[2]);
         canvas.DrawText(
             string.Format(c, totalFormat, s.TotalMs, s.FrameBudgetMs),
-            x,
+            padding,
             y,
             font,
             textPaint
@@ -141,12 +157,18 @@ public class ProfilerOverlayExtension : IExtension, IRenderOverlay
         y += lineHeight;
 
         textPaint.Color = new SKColor(theme.Foreground);
-        canvas.DrawText(string.Format(c, allocFormat, s.AllocKbPerFrame), x, y, font, textPaint);
+        canvas.DrawText(
+            string.Format(c, allocFormat, s.AllocKbPerFrame),
+            padding,
+            y,
+            font,
+            textPaint
+        );
         y += lineHeight;
 
         canvas.DrawText(
             string.Format(c, gen0Format, s.Gen0PerWindow, s.Fps),
-            x,
+            padding,
             y,
             font,
             textPaint
@@ -166,6 +188,4 @@ public class ProfilerOverlayExtension : IExtension, IRenderOverlay
         font = null;
         return ValueTask.CompletedTask;
     }
-
-    readonly record struct Row(string Label, double Ms, double Pct);
 }
