@@ -34,13 +34,11 @@ public class TerminalControl : Control, IPaneTerminal
     readonly ScreenBuffer initialBuffer;
     readonly TerminalRenderer renderer;
     readonly RenderProfiler profiler;
-    readonly FpsOverlayExtension fpsOverlay;
-    readonly FrameScheduler scheduler = new();
+    readonly PaneFrameLoop frames;
     readonly VtParser parser;
     readonly object bufferLock = new();
 
     PtySession? pty;
-    bool isAttached;
     bool ptyStarted;
 
     // Suggestion state
@@ -75,14 +73,12 @@ public class TerminalControl : Control, IPaneTerminal
         notifications = services.Notifications;
         settings = services.Settings;
 
-        var themeProvider = host.GetProvider<IThemeProvider>();
-        theme =
-            themeProvider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
-            ?? CatppuccinThemes.Macchiato;
+        theme = ResolveTheme(host);
 
         profiler = services.Profiler;
-        fpsOverlay = services.FpsOverlay;
         renderer = new TerminalRenderer(theme, profiler: profiler);
+        var fpsOverlay = services.FpsOverlay;
+        frames = new PaneFrameLoop(this, () => fpsOverlay.Enabled || profiler.Enabled);
 
         // Start with a default size; will resize once we know actual bounds
         initialBuffer = new ScreenBuffer(80, 24, theme);
@@ -94,7 +90,12 @@ public class TerminalControl : Control, IPaneTerminal
         // it will echo input.
         parser.Respond += RespondToPty;
 
-        suggestions = new InlineSuggestions(services.Suggestions, parser, bufferLock, MarkDirty);
+        suggestions = new InlineSuggestions(
+            services.Suggestions,
+            parser,
+            bufferLock,
+            frames.MarkDirty
+        );
         overlays = new TerminalOverlays(this, services, theme, RunHistoryCommand);
         shortcuts = BuildShortcuts();
 
@@ -102,6 +103,15 @@ public class TerminalControl : Control, IPaneTerminal
         ClipToBounds = true;
 
         ContextMenu = BuildContextMenu();
+    }
+
+    /// <summary>The theme every pane renders with, falling back to the built-in one when no
+    /// provider is registered (tests, or an extension that failed to activate).</summary>
+    static TerminalTheme ResolveTheme(ExtensionHost host)
+    {
+        var provider = host.GetProvider<IThemeProvider>();
+        return provider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
+            ?? CatppuccinThemes.Macchiato;
     }
 
     public event Action<SplitDirection>? SplitRequested;
@@ -133,7 +143,7 @@ public class TerminalControl : Control, IPaneTerminal
             ToggleReadOnlyRequested = () =>
             {
                 isReadOnly = !isReadOnly;
-                MarkDirty();
+                frames.MarkDirty();
             },
             CopyRequested = CopySelectionToClipboard,
             PasteRequested = PasteFromClipboard,
@@ -163,7 +173,7 @@ public class TerminalControl : Control, IPaneTerminal
 
         if (newCols == parser.ActiveBuffer.columns && newRows == parser.ActiveBuffer.rows)
         {
-            if (!ptyStarted && isAttached)
+            if (!ptyStarted && frames.Running)
             {
                 ptyStarted = true;
                 StartPty();
@@ -176,9 +186,9 @@ public class TerminalControl : Control, IPaneTerminal
             parser.Resize(newCols, newRows);
         }
 
-        MarkDirty();
+        frames.MarkDirty();
 
-        if (!ptyStarted && isAttached)
+        if (!ptyStarted && frames.Running)
         {
             ptyStarted = true;
             StartPty();
@@ -195,9 +205,7 @@ public class TerminalControl : Control, IPaneTerminal
     {
         base.OnAttachedToVisualTree(e);
         suggestions.Provider = host.GetProvider<ISuggestionProvider>();
-        isAttached = true;
-        MarkDirty();
-        ScheduleFrame();
+        frames.Start();
         // PTY start is deferred until ArrangeOverride provides the real size
     }
 
@@ -206,7 +214,7 @@ public class TerminalControl : Control, IPaneTerminal
         // Pause the animation loop. PTY and renderer survive detach so the control
         // can be re-parented (e.g. when a tab is split into panes) without losing state.
         // Final teardown happens in Close().
-        isAttached = false;
+        frames.Stop();
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -222,35 +230,6 @@ public class TerminalControl : Control, IPaneTerminal
         StopPty();
         renderer.Dispose();
     }
-
-    void ScheduleFrame()
-    {
-        if (!isAttached)
-        {
-            return;
-        }
-
-        TopLevel.GetTopLevel(this)?.RequestAnimationFrame(OnFrame);
-    }
-
-    void OnFrame(TimeSpan timestamp)
-    {
-        if (!isAttached)
-        {
-            return;
-        }
-
-        var overlaysSelfUpdating = fpsOverlay.Enabled || profiler.Enabled;
-        if (scheduler.Tick(Stopwatch.GetTimestamp(), overlaysSelfUpdating))
-        {
-            InvalidateVisual();
-        }
-        ScheduleFrame();
-    }
-
-    // Single entry point for "something visible changed; redraw on the next vsync". Safe to
-    // call from any thread (the PTY read thread is the main off-thread caller).
-    void MarkDirty() => scheduler.MarkDirty();
 
     async void StartPty()
     {
@@ -316,7 +295,7 @@ public class TerminalControl : Control, IPaneTerminal
 
         // PTY bytes can change anything visible - buffer contents, cursor visibility
         // (DECTCEM), alt-screen swap, scrollback. One flag covers them all.
-        MarkDirty();
+        frames.MarkDirty();
     }
 
     void OnPtyExited() => Dispatcher.UIThread.Post(() => PtyExited?.Invoke());
@@ -349,7 +328,7 @@ public class TerminalControl : Control, IPaneTerminal
             selection.BeginDrag(parser.ActiveBuffer, col, row, e.ClickCount);
         }
 
-        MarkDirty();
+        frames.MarkDirty();
         e.Pointer.Capture(this);
         e.Handled = true;
     }
@@ -369,7 +348,7 @@ public class TerminalControl : Control, IPaneTerminal
             selection.ExtendDrag(parser.ActiveBuffer, col, row);
         }
 
-        MarkDirty();
+        frames.MarkDirty();
         e.Handled = true;
     }
 
@@ -386,7 +365,7 @@ public class TerminalControl : Control, IPaneTerminal
         var (col, row) = PixelToGrid(e.GetPosition(this));
         selection.EndDrag(col, row);
 
-        MarkDirty();
+        frames.MarkDirty();
         e.Handled = true;
     }
 
@@ -415,7 +394,7 @@ public class TerminalControl : Control, IPaneTerminal
         }
 
         selection.Clear();
-        MarkDirty();
+        frames.MarkDirty();
         e.Handled = true;
     }
 
@@ -468,7 +447,7 @@ public class TerminalControl : Control, IPaneTerminal
         }
 
         selection.Clear();
-        MarkDirty();
+        frames.MarkDirty();
         return true;
     }
 
@@ -501,7 +480,7 @@ public class TerminalControl : Control, IPaneTerminal
     {
         profiler.Enabled = !profiler.Enabled;
         // Profiler overlay visibility just toggled; also flips the heartbeat policy.
-        MarkDirty();
+        frames.MarkDirty();
         notifications.Show(
             "Render Profiler",
             profiler.Enabled
@@ -639,7 +618,7 @@ public class TerminalControl : Control, IPaneTerminal
         {
             parser.ActiveBuffer.ScrollToBottom();
         }
-        MarkDirty();
+        frames.MarkDirty();
 
         try
         {
@@ -686,7 +665,7 @@ public class TerminalControl : Control, IPaneTerminal
             await clipboard.SetTextAsync(text);
 
         selection.Clear();
-        MarkDirty();
+        frames.MarkDirty();
     }
 
     public override void Render(DrawingContext context)
