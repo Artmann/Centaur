@@ -39,6 +39,20 @@ static class ScreenOps
         }
     }
 
+    /// <summary>RI: moves up one row, scrolling the region down when the cursor is already on
+    /// its top row.</summary>
+    public static void ReverseIndex(ScreenBuffer buffer)
+    {
+        if (buffer.cursorY == buffer.scrollTop)
+        {
+            buffer.ScrollDownInRegion(1, buffer.scrollTop, buffer.scrollBottom);
+        }
+        else if (buffer.cursorY > 0)
+        {
+            buffer.cursorY--;
+        }
+    }
+
     public static void EraseInDisplay(ScreenBuffer buffer, int mode, Cell blank)
     {
         switch (mode)

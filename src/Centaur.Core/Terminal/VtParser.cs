@@ -14,17 +14,19 @@ public class VtParser
     readonly SgrPen pen;
     readonly Cell blank;
 
-    // DEC Private Mode state
-    public bool CursorVisible { get; private set; } = true;
-    public bool ApplicationCursorKeys { get; private set; }
-    public bool BracketedPasteMode { get; private set; }
+    // DEC private mode state, all of it held by DecModes except the alternate-screen
+    // flag, which tracks which of the two buffers this parser is writing to.
+    readonly DecModes modes = new();
+    public bool CursorVisible => modes.CursorVisible;
+    public bool ApplicationCursorKeys => modes.ApplicationCursorKeys;
+    public bool BracketedPasteMode => modes.BracketedPasteMode;
     public bool IsAlternateScreen { get; private set; }
 
     // Mouse reporting modes.
-    public MouseTrackingMode MouseTracking { get; private set; } // 1000/1002/1003
-    public bool MouseSgrMode { get; private set; } // 1006
-    public bool FocusEventMode { get; private set; } // 1004
-    public bool AltScrollMode { get; private set; } // 1007
+    public MouseTrackingMode MouseTracking => modes.MouseTracking; // 1000/1002/1003
+    public bool MouseSgrMode => modes.MouseSgrMode; // 1006
+    public bool FocusEventMode => modes.FocusEventMode; // 1004
+    public bool AltScrollMode => modes.AltScrollMode; // 1007
     public ScreenBuffer ActiveBuffer => buffer;
 
     // Response channel back to the PTY for queries (DA, DECRQM, OSC color/clipboard
@@ -140,9 +142,7 @@ public class VtParser
     readonly List<byte> oscBuffer = new();
 
     // UTF-8 decoder state
-    readonly byte[] utf8Buf = new byte[4];
-    int utf8Remaining;
-    int utf8Length;
+    readonly Utf8Decoder utf8 = new();
 
     public VtParser(ScreenBuffer buffer)
         : this(buffer, CatppuccinThemes.Macchiato) { }
@@ -206,107 +206,47 @@ public class VtParser
 
     void ProcessGround(byte b)
     {
-        switch (b)
+        if (b == 0x1B) // ESC
         {
-            case 0x1B: // ESC
-                state = State.Escape;
-                break;
-            case 0x07: // BEL - bell, ignore
-                break;
-            case 0x08: // BS - backspace
-                if (buffer.cursorX > 0)
-                {
-                    buffer.cursorX--;
-                }
-                break;
-            case 0x09: // TAB
-                buffer.cursorX = ((buffer.cursorX / 8) + 1) * 8;
-                if (buffer.cursorX >= buffer.columns)
-                {
-                    buffer.cursorX = buffer.columns - 1;
-                }
-                break;
-            case 0x0A: // LF - line feed
-            case 0x0B: // VT - vertical tab
-            case 0x0C: // FF - form feed
-                ScreenOps.LineFeed(buffer);
-                break;
-            case 0x0D: // CR - carriage return
-                buffer.cursorX = 0;
-                break;
-            default:
-                if (utf8Remaining > 0 && (b & 0xC0) == 0x80)
-                {
-                    // UTF-8 continuation byte
-                    utf8Buf[utf8Length++] = b;
-                    utf8Remaining--;
-                    if (utf8Remaining == 0)
-                    {
-                        FlushUtf8();
-                    }
-                }
-                else if ((b & 0xE0) == 0xC0)
-                {
-                    // 2-byte UTF-8 start
-                    utf8Buf[0] = b;
-                    utf8Length = 1;
-                    utf8Remaining = 1;
-                }
-                else if ((b & 0xF0) == 0xE0)
-                {
-                    // 3-byte UTF-8 start
-                    utf8Buf[0] = b;
-                    utf8Length = 1;
-                    utf8Remaining = 2;
-                }
-                else if ((b & 0xF8) == 0xF0)
-                {
-                    // 4-byte UTF-8 start
-                    utf8Buf[0] = b;
-                    utf8Length = 1;
-                    utf8Remaining = 3;
-                }
-                else if (b >= 0x20)
-                {
-                    // ASCII printable
-                    ScreenOps.Write(buffer, pen.Paint((char)b));
-                }
-                break;
+            state = State.Escape;
+            return;
+        }
+        if (ScreenCommands.TryExecuteControl(buffer, b))
+        {
+            return;
+        }
+
+        if (utf8.TryDecode(b, out var text))
+        {
+            foreach (var c in text)
+            {
+                ScreenOps.Write(buffer, pen.Paint(c));
+            }
+        }
+        else if (b >= 0x20) // ASCII printable
+        {
+            ScreenOps.Write(buffer, pen.Paint((char)b));
         }
     }
 
     void ProcessEscape(byte b)
     {
+        // Every escape ends here unless it opens a longer sequence.
+        state = State.Ground;
         switch (b)
         {
             case (byte)'[': // CSI
-                state = State.Csi;
-                csiParams.Clear();
-                csiParamIsColon.Clear();
-                pendingColon = false;
-                currentParam = 0;
-                csiPrefix = '\0';
-                csiIntermediate = '\0';
+                BeginCsi();
                 break;
             case (byte)'D': // IND - Index (move down)
                 ScreenOps.LineFeed(buffer);
-                state = State.Ground;
                 break;
             case (byte)'E': // NEL - Next Line
                 buffer.cursorX = 0;
                 ScreenOps.LineFeed(buffer);
-                state = State.Ground;
                 break;
             case (byte)'M': // RI - Reverse Index (move up)
-                if (buffer.cursorY == buffer.scrollTop)
-                {
-                    buffer.ScrollDownInRegion(1, buffer.scrollTop, buffer.scrollBottom);
-                }
-                else if (buffer.cursorY > 0)
-                {
-                    buffer.cursorY--;
-                }
-                state = State.Ground;
+                ScreenOps.ReverseIndex(buffer);
                 break;
             case (byte)']': // OSC - Operating System Command
                 state = State.Osc;
@@ -314,63 +254,77 @@ public class VtParser
                 break;
             case (byte)'7': // DECSC - Save cursor
                 SaveCursor();
-                state = State.Ground;
                 break;
             case (byte)'8': // DECRC - Restore cursor
                 RestoreCursor();
-                state = State.Ground;
-                break;
-            default:
-                // Unknown escape, return to ground
-                state = State.Ground;
                 break;
         }
     }
 
+    void BeginCsi()
+    {
+        state = State.Csi;
+        csiParams.Clear();
+        csiParamIsColon.Clear();
+        pendingColon = false;
+        currentParam = 0;
+        csiPrefix = '\0';
+        csiIntermediate = '\0';
+    }
+
     void ProcessCsi(byte b)
     {
-        if (b >= '0' && b <= '9')
+        if (TryAccumulateParam(b))
         {
-            currentParam = currentParam * 10 + (b - '0');
             state = State.CsiParam;
+            return;
         }
-        else if (b == ';')
-        {
-            PushParam();
-            pendingColon = false;
-            state = State.CsiParam;
-        }
-        else if (b == ':')
-        {
-            // Colon sub-parameter: the next param belongs to this param's group.
-            PushParam();
-            pendingColon = true;
-            state = State.CsiParam;
-        }
-        else if (b >= 0x40 && b <= 0x7E)
+
+        if (b >= 0x40 && b <= 0x7E)
         {
             // Final byte - execute command
             PushParam();
             ExecuteCsi((char)b);
-            state = State.Ground;
         }
-        else if (b >= 0x3C && b <= 0x3F)
+        // Either the sequence just ran or the byte was junk; both end it.
+        state = State.Ground;
+    }
+
+    /// <summary>Consumes everything a CSI sequence can carry ahead of its final byte: the
+    /// digits, the two separators, the private prefix and the intermediate byte.</summary>
+    bool TryAccumulateParam(byte b)
+    {
+        if (b >= '0' && b <= '9')
+        {
+            currentParam = currentParam * 10 + (b - '0');
+            return true;
+        }
+        if (b == ';')
+        {
+            PushParam();
+            pendingColon = false;
+            return true;
+        }
+        if (b == ':')
+        {
+            // Colon sub-parameter: the next param belongs to this param's group.
+            PushParam();
+            pendingColon = true;
+            return true;
+        }
+        if (b >= 0x3C && b <= 0x3F)
         {
             // Private parameter prefix: '<' '=' '>' '?'
             csiPrefix = (char)b;
-            state = State.CsiParam;
+            return true;
         }
-        else if (b >= 0x20 && b <= 0x2F)
+        if (b >= 0x20 && b <= 0x2F)
         {
             // Intermediate byte (e.g. '$' in DECRQM's CSI ? Ps $ p).
             csiIntermediate = (char)b;
-            state = State.CsiParam;
+            return true;
         }
-        else
-        {
-            // Unknown, return to ground
-            state = State.Ground;
-        }
+        return false;
     }
 
     void PushParam()
@@ -391,68 +345,24 @@ public class VtParser
             return;
         }
 
-        int Param(int index, int defaultValue = 1) =>
-            index < csiParams.Count && csiParams[index] > 0 ? csiParams[index] : defaultValue;
+        var args = new CsiArgs(csiParams);
+        if (!ScreenCommands.TryExecuteCsi(buffer, command, args, blank))
+        {
+            ExecuteAnsiCsi(command, args);
+        }
+    }
 
+    // The CSI commands that need more than the screen: the pen, the reply channel and the
+    // saved-cursor registers.
+    void ExecuteAnsiCsi(char command, CsiArgs args)
+    {
         switch (command)
         {
-            case 'A': // CUU - Cursor Up
-                buffer.cursorY = Math.Max(0, buffer.cursorY - Param(0));
-                break;
-            case 'B': // CUD - Cursor Down
-                buffer.cursorY = Math.Min(buffer.rows - 1, buffer.cursorY + Param(0));
-                break;
-            case 'C': // CUF - Cursor Forward
-                buffer.cursorX = Math.Min(buffer.columns - 1, buffer.cursorX + Param(0));
-                break;
-            case 'D': // CUB - Cursor Backward
-                buffer.cursorX = Math.Max(0, buffer.cursorX - Param(0));
-                break;
-            case 'E': // CNL - Cursor Next Line
-                buffer.cursorX = 0;
-                buffer.cursorY = Math.Min(buffer.rows - 1, buffer.cursorY + Param(0));
-                break;
-            case 'F': // CPL - Cursor Previous Line
-                buffer.cursorX = 0;
-                buffer.cursorY = Math.Max(0, buffer.cursorY - Param(0));
-                break;
-            case 'G': // CHA - Cursor Horizontal Absolute
-                buffer.cursorX = Math.Clamp(Param(0) - 1, 0, buffer.columns - 1);
-                break;
-            case 'H': // CUP - Cursor Position
-            case 'f': // HVP - Horizontal Vertical Position
-                buffer.cursorY = Math.Clamp(Param(0) - 1, 0, buffer.rows - 1);
-                buffer.cursorX = Math.Clamp(Param(1, 1) - 1, 0, buffer.columns - 1);
-                break;
-            case 'J': // ED - Erase in Display
-                ScreenOps.EraseInDisplay(buffer, Param(0, 0), blank);
-                break;
-            case 'K': // EL - Erase in Line
-                ScreenOps.EraseInLine(buffer, Param(0, 0), blank);
-                break;
-            case 'L': // IL - Insert Lines
-                ScreenOps.InsertLines(buffer, Param(0), blank);
-                break;
-            case 'M': // DL - Delete Lines
-                ScreenOps.DeleteLines(buffer, Param(0), blank);
-                break;
-            case 'P': // DCH - Delete Characters
-                ScreenOps.DeleteCharacters(buffer, Param(0), blank);
-                break;
-            case '@': // ICH - Insert Characters
-                ScreenOps.InsertCharacters(buffer, Param(0), blank);
-                break;
-            case 'X': // ECH - Erase Characters
-                ScreenOps.EraseCharacters(buffer, Param(0), blank);
-                break;
             case 'S': // SU - Scroll Up
-                buffer.ScrollUp(Param(0));
+                buffer.ScrollUp(args.Get(0));
                 break;
             case 'T': // SD - Scroll Down
-                buffer.ScrollDown(Param(0));
-                break;
-            case 'd': // VPA - Vertical Position Absolute
-                buffer.cursorY = Math.Clamp(Param(0) - 1, 0, buffer.rows - 1);
+                buffer.ScrollDown(args.Get(0));
                 break;
             case 'm': // SGR - Select Graphic Rendition
                 pen.Apply(csiParams, csiParamIsColon);
@@ -469,15 +379,11 @@ public class VtParser
             case 'u': // RCP - Restore Cursor Position (ANSI)
                 RestoreCursor();
                 break;
-            case 'r': // DECSTBM - Set Top and Bottom Margins
-            {
-                var top = Param(0) - 1; // Convert 1-based to 0-based
-                var bottom = Param(1, buffer.rows) - 1;
-                buffer.SetScrollRegion(top, bottom);
+            case 'r': // DECSTBM - Set Top and Bottom Margins, 1-based
+                buffer.SetScrollRegion(args.Get(0) - 1, args.Get(1, buffer.rows) - 1);
                 buffer.cursorX = 0;
                 buffer.cursorY = 0;
                 break;
-            }
         }
     }
 
@@ -500,77 +406,54 @@ public class VtParser
                 }
                 break;
             case 'p': // DECRQM - Request Mode (CSI ? Ps $ p)
-                if (csiPrefix == '?' && csiIntermediate == '$')
-                {
-                    HandleDecrqm();
-                }
+                HandleDecrqm();
                 break;
             case 'q': // XTVERSION - report terminal name/version (CSI > q)
-                if (csiPrefix == '>' && csiIntermediate == '\0')
-                {
-                    Reply($"\x1bP>|Centaur({TerminalVersion})\x1b\\");
-                }
+                HandleXtversion();
                 break;
+        }
+    }
+
+    void HandleXtversion()
+    {
+        if (csiPrefix == '>' && csiIntermediate == '\0')
+        {
+            Reply($"\x1bP>|Centaur({TerminalVersion})\x1b\\");
         }
     }
 
     void ExecuteDecMode(char command)
     {
         var enabled = command == 'h';
-        for (int i = 0; i < csiParams.Count; i++)
+        foreach (var mode in csiParams)
         {
-            switch (csiParams[i])
+            if (!modes.TrySet(mode, enabled) && mode == 1049)
             {
-                case 1: // DECCKM - Application Cursor Keys
-                    ApplicationCursorKeys = enabled;
-                    break;
-                case 25: // DECTCEM - Cursor Visibility
-                    CursorVisible = enabled;
-                    break;
-                case 1000: // Normal mouse tracking (X11)
-                    MouseTracking = enabled ? MouseTrackingMode.Normal : MouseTrackingMode.Off;
-                    break;
-                case 1002: // Button-event tracking
-                    MouseTracking = enabled ? MouseTrackingMode.ButtonEvent : MouseTrackingMode.Off;
-                    break;
-                case 1003: // Any-event tracking
-                    MouseTracking = enabled ? MouseTrackingMode.AnyEvent : MouseTrackingMode.Off;
-                    break;
-                case 1004: // Focus event reporting
-                    FocusEventMode = enabled;
-                    break;
-                case 1006: // SGR extended mouse mode
-                    MouseSgrMode = enabled;
-                    break;
-                case 1007: // Alternate scroll mode
-                    AltScrollMode = enabled;
-                    break;
-                case 2004: // Bracketed Paste Mode
-                    BracketedPasteMode = enabled;
-                    break;
-                case 1049: // Alternate Screen Buffer
-                    if (enabled)
-                    {
-                        // Save the main-screen cursor (into the main register, since the
-                        // main buffer is still active), switch to alternate, clear.
-                        SaveCursor();
-                        buffer = alternateBuffer;
-                        buffer.Clear();
-                        buffer.SetScrollRegion(0, buffer.rows - 1);
-                        IsAlternateScreen = true;
-                    }
-                    else
-                    {
-                        // Switch back to main, then restore from the main register. The
-                        // app's save/restore on the alternate screen used altSaved, so the
-                        // main-screen cursor saved on 1049h is intact.
-                        buffer = mainBuffer;
-                        RestoreCursor();
-                        IsAlternateScreen = false;
-                    }
-                    break;
+                SetAlternateScreen(enabled);
             }
         }
+    }
+
+    void SetAlternateScreen(bool enabled)
+    {
+        if (enabled)
+        {
+            // Save the main-screen cursor (into the main register, since the main buffer
+            // is still active), switch to alternate, clear.
+            SaveCursor();
+            buffer = alternateBuffer;
+            buffer.Clear();
+            buffer.SetScrollRegion(0, buffer.rows - 1);
+        }
+        else
+        {
+            // Switch back to main, then restore from the main register. The app's
+            // save/restore on the alternate screen used altSaved, so the main-screen
+            // cursor saved on 1049h is intact.
+            buffer = mainBuffer;
+            RestoreCursor();
+        }
+        IsAlternateScreen = enabled;
     }
 
     void HandleDeviceAttributes()
@@ -605,28 +488,13 @@ public class VtParser
 
     void HandleDecrqm()
     {
-        var mode = csiParams.Count > 0 ? csiParams[0] : 0;
-        // Reply state: 0 = not recognized, 1 = set, 2 = reset.
-        var modeState = mode switch
+        if (csiPrefix != '?' || csiIntermediate != '$')
         {
-            1 => ApplicationCursorKeys ? 1 : 2,
-            25 => CursorVisible ? 1 : 2,
-            2004 => BracketedPasteMode ? 1 : 2,
-            1049 => IsAlternateScreen ? 1 : 2,
-            _ => 0,
-        };
-        Reply($"\x1b[?{mode};{modeState}$y");
-    }
-
-    void FlushUtf8()
-    {
-        var span = utf8Buf.AsSpan(0, utf8Length);
-        var chars = new char[2];
-        var charCount = System.Text.Encoding.UTF8.GetChars(span, chars);
-        for (var i = 0; i < charCount; i++)
-        {
-            ScreenOps.Write(buffer, pen.Paint(chars[i]));
+            return;
         }
+
+        var mode = csiParams.Count > 0 ? csiParams[0] : 0;
+        Reply($"[?{mode};{modes.Report(mode, IsAlternateScreen)}$y");
     }
 
     void ProcessOsc(byte b)
