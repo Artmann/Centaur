@@ -22,15 +22,29 @@ dotnet run --project src/Centaur.App
 
 ## Formatting and Linting
 
-This project uses [CSharpier](https://csharpier.com/) for formatting and Roslyn Analyzers for linting.
+This project uses [CSharpier](https://csharpier.com/) for formatting, Roslyn Analyzers for linting, and [roe](https://github.com/Artmann/roe) for codebase intelligence (dead code, duplication, complexity).
 
 ```bash
 dotnet csharpier format .          # Format all files
 dotnet csharpier check .           # Check formatting without writing changes
 dotnet build                       # Roslyn analyzers run as part of the build
+dotnet roe .                       # Dead code, duplication and health checks
 ```
 
-CSharpier is installed as a local dotnet tool. Run `dotnet tool restore` after cloning to install it.
+Individual roe analyses:
+
+```bash
+dotnet roe dead-code .             # Unreferenced files, types and members
+dotnet roe dupes .                 # Copy-pasted blocks
+dotnet roe health .                # Complexity, method/file/type size
+dotnet roe health . --hotspots     # Rank files by complexity x recent churn
+```
+
+roe exits non-zero on any finding and runs in CI. False positives are suppressed in `roe.json` at the
+repo root - prefer a scoped `deadCode.ignore` entry with a comment in the PR over a top-level `ignore`,
+so the file keeps its duplication and health coverage.
+
+CSharpier and roe are installed as local dotnet tools. Run `dotnet tool restore` after cloning to install them.
 
 ## Architecture
 

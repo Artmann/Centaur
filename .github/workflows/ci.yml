@@ -40,3 +40,16 @@ jobs:
           dotnet-version: 9.0.x
       - run: dotnet tool restore
       - run: dotnet csharpier check .
+
+  roe:
+    name: Codebase intelligence (roe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # hotspot churn scoring needs real history
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - run: dotnet tool restore
+      - run: dotnet roe .

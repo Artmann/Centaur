@@ -6,6 +6,8 @@
 - **CSharpier** for formatting: `dotnet csharpier format .`
 - **Roslyn Analyzers** for linting: runs automatically during `dotnet build`
 - Run `dotnet csharpier check .` to verify formatting without writing changes
+- **roe** for codebase intelligence: `dotnet roe .` (dead code, duplication, health) - exits non-zero on findings and gates CI
+- Suppress roe false positives in `roe.json`; prefer scoped `deadCode.ignore` over top-level `ignore`
 - CSharpier is a local dotnet tool — run `dotnet tool restore` after cloning
 
 ## Commit Messages
