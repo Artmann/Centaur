@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -9,8 +10,8 @@ namespace Centaur.Tests;
 
 /// <summary>
 /// Headless end-to-end harness: spawns a real shell over ConPTY and wires its output
-/// through the VtParser into a ScreenBuffer, exactly like <c>TerminalControl</c> does
-/// (see TerminalControl.cs constructor + ReadLoopAsync), but with no Avalonia/UI thread.
+/// through the VtParser into a ScreenBuffer over the same <see cref="PtySession"/> the app
+/// runs on, but with no Avalonia/UI thread.
 ///
 /// Tests drive it by sending real commands and waiting for output to appear in the grid,
 /// then read <see cref="ActiveBuffer"/> (or its text) to assert on the parsed screen state
@@ -20,19 +21,17 @@ namespace Centaur.Tests;
 sealed class TerminalSession : IAsyncDisposable
 {
     readonly object bufferLock = new();
-    readonly SemaphoreSlim writeLock = new(1, 1);
-    readonly CancellationTokenSource readCts = new();
     readonly VtParser parser;
     readonly ScreenBuffer buffer;
-    readonly ConPtyConnection pty;
-    readonly Task readTask;
 
-    TerminalSession(ConPtyConnection pty, VtParser parser, ScreenBuffer buffer)
+    // Assigned in StartAsync, which is the only way to get an instance: the session has to
+    // exist before it can hand PtySession the callback that parses the shell's output.
+    PtySession pty = null!;
+
+    TerminalSession(VtParser parser, ScreenBuffer buffer)
     {
-        this.pty = pty;
         this.parser = parser;
         this.buffer = buffer;
-        readTask = Task.Run(() => ReadLoopAsync(readCts.Token));
     }
 
     public static async Task<TerminalSession> StartAsync(
@@ -43,9 +42,16 @@ sealed class TerminalSession : IAsyncDisposable
         theme ??= CatppuccinThemes.Macchiato;
         var buffer = new ScreenBuffer(options.columns, options.rows, theme);
         var parser = new VtParser(buffer, theme);
-        var pty = await SpawnAsync(options);
 
-        var session = new TerminalSession(pty, parser, buffer);
+        var session = new TerminalSession(parser, buffer);
+
+        // Same session type the app runs on, with our own spawn so the child does not
+        // inherit the test host's std handles (see SpawnAsync).
+        session.pty = await PtySession.StartAsync(
+            options,
+            session.ParsePtyOutput,
+            spawn: SpawnAsync
+        );
 
         // Answer capability probes (Device Attributes, DECRQM, OSC color/clipboard) so the
         // shell doesn't stall on startup timeouts — mirrors TerminalControl.RespondToPty.
@@ -71,19 +77,7 @@ sealed class TerminalSession : IAsyncDisposable
 
     /// <summary>Write raw bytes to the shell's stdin. Lets a test embed control bytes such as
     /// a literal ESC (0x1B) so the shell emits a deterministic escape sequence.</summary>
-    public async Task SendRawAsync(byte[] bytes)
-    {
-        await writeLock.WaitAsync();
-        try
-        {
-            await pty.Input.WriteAsync(bytes);
-            await pty.Input.FlushAsync();
-        }
-        finally
-        {
-            writeLock.Release();
-        }
-    }
+    public Task SendRawAsync(byte[] bytes) => pty.WriteAsync(bytes);
 
     /// <summary>Text of a single row with trailing blanks trimmed.</summary>
     public string GetLineText(int y) => WithBuffer(b => RowText(b, y));
@@ -176,54 +170,17 @@ sealed class TerminalSession : IAsyncDisposable
         }
     }
 
-    async Task ReadLoopAsync(CancellationToken ct)
+    // Runs on the PTY read thread; the buffer lock is what makes WithBuffer race-free.
+    void ParsePtyOutput(ReadOnlySequence<byte> bytes)
     {
-        try
+        lock (bufferLock)
         {
-            while (!ct.IsCancellationRequested)
+            foreach (var segment in bytes)
             {
-                var result = await pty.Output.ReadAsync(ct);
-                var ptyBuffer = result.Buffer;
-
-                lock (bufferLock)
-                {
-                    foreach (var segment in ptyBuffer)
-                    {
-                        parser.Process(segment.Span);
-                    }
-                }
-
-                pty.Output.AdvanceTo(ptyBuffer.End);
-
-                if (result.IsCompleted)
-                {
-                    break;
-                }
+                parser.Process(segment.Span);
             }
         }
-        catch (OperationCanceledException)
-        {
-            // Expected on dispose.
-        }
-        catch (Exception)
-        {
-            // Shell exited or pipe closed — nothing to assert here, tests gate on output.
-        }
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        await readCts.CancelAsync();
-        try
-        {
-            await readTask;
-        }
-        catch
-        {
-            // Loop already swallows its own exceptions; ignore.
-        }
-        await pty.DisposeAsync();
-        readCts.Dispose();
-        writeLock.Dispose();
-    }
+    public ValueTask DisposeAsync() => pty.DisposeAsync();
 }

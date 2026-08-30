@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Text;
 using Avalonia;
@@ -38,14 +39,7 @@ public class TerminalControl : Control, IPaneTerminal
     readonly VtParser parser;
     readonly object bufferLock = new();
 
-    // Serializes all writes to the PTY input pipe. SendToPty (UI thread) and
-    // RespondToPty (PTY read thread) can fire concurrently; without this their
-    // async write/flush pairs could interleave and corrupt the byte stream.
-    readonly SemaphoreSlim ptyWriteLock = new(1, 1);
-
-    ConPtyConnection? pty;
-    CancellationTokenSource? readCts;
-    Task? readTask;
+    PtySession? pty;
     bool isAttached;
     bool ptyStarted;
 
@@ -318,9 +312,7 @@ public class TerminalControl : Control, IPaneTerminal
                 workingDirectory: startingDirectory
             );
 
-            pty = await ConPtyConnection.CreateAsync(options);
-            readCts = new CancellationTokenSource();
-            readTask = Task.Run(() => ReadLoopAsync(readCts.Token));
+            pty = await PtySession.StartAsync(options, ParsePtyOutput, OnPtyExited);
         }
         catch (Exception ex)
         {
@@ -330,70 +322,36 @@ public class TerminalControl : Control, IPaneTerminal
 
     async void StopPty()
     {
-        readCts?.Cancel();
-        if (readTask != null)
+        var session = pty;
+        pty = null;
+        if (session != null)
         {
-            try
-            {
-                await readTask;
-            }
-            catch { }
+            await session.DisposeAsync();
         }
-        if (pty != null)
-        {
-            await pty.DisposeAsync();
-            pty = null;
-        }
-        readCts?.Dispose();
-        readCts = null;
     }
 
-    async Task ReadLoopAsync(CancellationToken ct)
+    // Called on the PTY read thread for every chunk the shell produced.
+    void ParsePtyOutput(ReadOnlySequence<byte> bytes)
     {
-        if (pty == null)
-            return;
-
-        try
+        lock (bufferLock)
         {
-            while (!ct.IsCancellationRequested)
+            foreach (var segment in bytes)
             {
-                var result = await pty.Output.ReadAsync(ct);
-                var ptyBuffer = result.Buffer;
+                parser.Process(segment.Span);
+            }
 
-                lock (bufferLock)
-                {
-                    foreach (var segment in ptyBuffer)
-                    {
-                        parser.Process(segment.Span);
-                    }
-
-                    if (awaitingPrompt)
-                    {
-                        promptEndCol = parser.ActiveBuffer.cursorX;
-                    }
-                }
-
-                // PTY bytes can change anything visible — buffer contents, cursor visibility
-                // (DECTCEM), alt-screen swap, scrollback. One flag covers them all.
-                MarkDirty();
-
-                pty.Output.AdvanceTo(ptyBuffer.End);
-
-                if (result.IsCompleted)
-                    break;
+            if (awaitingPrompt)
+            {
+                promptEndCol = parser.ActiveBuffer.cursorX;
             }
         }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        catch (Exception)
-        {
-            // Fall through to fire PtyExited
-        }
 
-        Dispatcher.UIThread.Post(() => PtyExited?.Invoke());
+        // PTY bytes can change anything visible - buffer contents, cursor visibility
+        // (DECTCEM), alt-screen swap, scrollback. One flag covers them all.
+        MarkDirty();
     }
+
+    void OnPtyExited() => Dispatcher.UIThread.Post(() => PtyExited?.Invoke());
 
     (int col, int row) PixelToGrid(Point p)
     {
@@ -907,25 +865,20 @@ public class TerminalControl : Control, IPaneTerminal
             return;
         }
 
-        await ptyWriteLock.WaitAsync();
         try
         {
-            await connection.Input.WriteAsync(data);
-            await connection.Input.FlushAsync();
+            await connection.WriteAsync(data);
         }
         catch (Exception ex)
         {
             notifications.Show("Terminal Error", ex.Message, NotificationSeverity.Error);
         }
-        finally
-        {
-            ptyWriteLock.Release();
-        }
     }
 
     async void SendToPty(byte[] data)
     {
-        if (pty == null || isReadOnly)
+        var connection = pty;
+        if (connection == null || isReadOnly)
         {
             return;
         }
@@ -936,19 +889,13 @@ public class TerminalControl : Control, IPaneTerminal
         }
         MarkDirty();
 
-        await ptyWriteLock.WaitAsync();
         try
         {
-            await pty.Input.WriteAsync(data);
-            await pty.Input.FlushAsync();
+            await connection.WriteAsync(data);
         }
         catch (Exception ex)
         {
             notifications.Show("Input Error", ex.Message, NotificationSeverity.Error);
-        }
-        finally
-        {
-            ptyWriteLock.Release();
         }
     }
 
