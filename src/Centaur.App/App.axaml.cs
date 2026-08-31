@@ -58,7 +58,9 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    static void ConfigureServices(IServiceCollection services)
+    /// <summary>Builds the application's service graph. Internal so the tests can resolve it
+    /// without starting a window.</summary>
+    internal static void ConfigureServices(IServiceCollection services)
     {
         AddHosting(services);
         AddOverlays(services);
@@ -98,7 +100,16 @@ public partial class App : Application
     static void AddHosting(IServiceCollection services)
     {
         services.AddSingleton<ExtensionHost>();
-        services.AddSingleton<IThemeProvider, CatppuccinThemeProvider>();
+
+        // Registered under IProvider as well, not just IThemeProvider: the host is built from
+        // IEnumerable<IProvider>, and a registration for a derived interface does not satisfy
+        // that. Without this line the host has no theme provider, so the settings page's theme
+        // picker has nothing to offer and every pane silently falls back to the built-in theme.
+        services.AddSingleton<CatppuccinThemeProvider>();
+        services.AddSingleton<IThemeProvider>(sp =>
+            sp.GetRequiredService<CatppuccinThemeProvider>()
+        );
+        services.AddSingleton<IProvider>(sp => sp.GetRequiredService<CatppuccinThemeProvider>());
         services.AddSingleton<NotificationServiceExtension>();
         services.AddSingleton<IExtension>(sp =>
             sp.GetRequiredService<NotificationServiceExtension>()
@@ -151,7 +162,10 @@ public partial class App : Application
             var path = AppDataPath("settings.json");
             return new Settings(path, StorageErrorReporter(sp, "settings", path));
         });
-        services.AddSingleton<SettingsExtension>();
+        services.AddSingleton(sp => new SettingsExtension(
+            sp.GetRequiredService<Settings>(),
+            () => sp.GetRequiredService<TerminalServices>().Theme
+        ));
         services.AddSingleton<IExtension>(sp => sp.GetRequiredService<SettingsExtension>());
     }
 

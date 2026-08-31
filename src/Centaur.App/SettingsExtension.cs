@@ -11,13 +11,18 @@ namespace Centaur.App;
 public class SettingsExtension : IExtension
 {
     readonly Settings settings;
-    readonly TerminalServices services;
+    readonly Func<TerminalTheme> theme;
     Action<string>? changed;
 
-    public SettingsExtension(Settings settings, TerminalServices services)
+    /// <param name="theme">The active theme, read on demand rather than injected. The type that
+    /// resolves it depends on the <see cref="ExtensionHost"/> this extension is registered in,
+    /// so taking it directly would close a cycle in the container - and because the container
+    /// does not detect cycles through factory lambdas, that cycle recursed at startup instead of
+    /// throwing, and the window was never built.</param>
+    public SettingsExtension(Settings settings, Func<TerminalTheme> theme)
     {
         this.settings = settings;
-        this.services = services;
+        this.theme = theme;
     }
 
     public int Priority => 200;
@@ -30,7 +35,7 @@ public class SettingsExtension : IExtension
 
             if (id is SettingIds.Theme or "")
             {
-                context.Events.Publish(new ThemeChangedEvent(services.Theme));
+                context.Events.Publish(new ThemeChangedEvent(theme()));
             }
         };
 

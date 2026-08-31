@@ -65,6 +65,13 @@ sealed class OverlayTheme
         // The overlays draw their own frame, so the property keeps a visible border even
         // though every border state resource is transparent.
         box.BorderBrush = Dim;
+
+        // Fluent styles the watermark through a resource too, so without these the placeholder
+        // keeps the stock grey and all but disappears against a light theme's surface.
+        foreach (var key in placeholderKeys)
+        {
+            box.Resources[key] = Dim;
+        }
     }
 
     /// <summary>
@@ -118,6 +125,13 @@ sealed class OverlayTheme
         "TextControlBorderBrush",
         "TextControlBorderBrushPointerOver",
         "TextControlBorderBrushFocused",
+    ];
+
+    static readonly string[] placeholderKeys =
+    [
+        "TextControlPlaceholderForeground",
+        "TextControlPlaceholderForegroundPointerOver",
+        "TextControlPlaceholderForegroundFocused",
     ];
 
     static readonly string[] foregroundKeys =
