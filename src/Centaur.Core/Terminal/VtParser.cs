@@ -11,6 +11,9 @@ public class VtParser
 
     // Colours and text styles SGR selects, and the cell the erase operations fill with.
     readonly SgrPen pen;
+
+    // DECSC/DECRC registers, one per screen.
+    readonly CursorRegisters cursors;
     readonly Cell blank;
 
     // DEC private mode state, all of it held by DecModes except the alternate-screen
@@ -34,48 +37,6 @@ public class VtParser
     /// <summary>State the OSC sequences carry - window title, working directory, the palette
     /// and default colours, the last exit code - and the OSC 52 clipboard event.</summary>
     public OscHandler Osc => osc;
-
-    // Saved cursor state (DECSC/DECRC). Per-screen: the main and alternate buffers
-    // each have their own register, matching xterm. A full-screen app's save/restore
-    // on the alternate screen must not corrupt the main screen's cursor, which is
-    // saved on 1049h and restored on 1049l.
-    struct SavedCursor
-    {
-        public int x;
-        public int y;
-        public uint fg;
-        public uint bg;
-    }
-
-    SavedCursor mainSaved;
-    SavedCursor altSaved;
-
-    ref SavedCursor CurrentSaved()
-    {
-        if (buffer == alternateBuffer)
-        {
-            return ref altSaved;
-        }
-        return ref mainSaved;
-    }
-
-    void SaveCursor()
-    {
-        ref var slot = ref CurrentSaved();
-        slot.x = buffer.cursorX;
-        slot.y = buffer.cursorY;
-        slot.fg = pen.Foreground;
-        slot.bg = pen.Background;
-    }
-
-    void RestoreCursor()
-    {
-        ref var slot = ref CurrentSaved();
-        buffer.cursorX = slot.x;
-        buffer.cursorY = slot.y;
-        pen.Foreground = slot.fg;
-        pen.Background = slot.bg;
-    }
 
     enum State
     {
@@ -125,6 +86,7 @@ public class VtParser
         pen = new SgrPen(theme);
         blank = new Cell(' ', theme.Foreground, theme.Background);
         osc = new OscHandler(theme, pen, reports.Reply);
+        cursors = new CursorRegisters(alternateBuffer, pen);
     }
 
     public void Resize(int columns, int rows)
@@ -218,10 +180,10 @@ public class VtParser
                 oscBuffer.Clear();
                 break;
             case (byte)'7': // DECSC - Save cursor
-                SaveCursor();
+                cursors.Save(buffer);
                 break;
             case (byte)'8': // DECRC - Restore cursor
-                RestoreCursor();
+                cursors.Restore(buffer);
                 break;
         }
     }
@@ -339,10 +301,10 @@ public class VtParser
                 reports.DeviceStatus(args.Get(0, 0), buffer);
                 break;
             case 's': // SCP - Save Cursor Position (ANSI)
-                SaveCursor();
+                cursors.Save(buffer);
                 break;
             case 'u': // RCP - Restore Cursor Position (ANSI)
-                RestoreCursor();
+                cursors.Restore(buffer);
                 break;
             case 'r': // DECSTBM - Set Top and Bottom Margins, 1-based
                 buffer.Region.Set(args.Get(0) - 1, args.Get(1, buffer.rows) - 1);
@@ -397,7 +359,7 @@ public class VtParser
         {
             // Save the main-screen cursor (into the main register, since the main buffer
             // is still active), switch to alternate, clear.
-            SaveCursor();
+            cursors.Save(buffer);
             buffer = alternateBuffer;
             buffer.Clear();
             buffer.Region.Set(0, buffer.rows - 1);
@@ -408,7 +370,7 @@ public class VtParser
             // save/restore on the alternate screen used altSaved, so the main-screen
             // cursor saved on 1049h is intact.
             buffer = mainBuffer;
-            RestoreCursor();
+            cursors.Restore(buffer);
         }
         IsAlternateScreen = enabled;
     }
