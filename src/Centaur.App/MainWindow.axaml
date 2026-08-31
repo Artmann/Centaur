@@ -3,6 +3,7 @@
     xmlns:local="clr-namespace:Centaur.App"
     x:Class="Centaur.App.MainWindow"
     Title="Centaur"
+    Icon="/Assets/centaur-256.png"
     Width="1280"
     Height="800"
     MinWidth="480"

@@ -10,7 +10,16 @@
          dependencies passed in; adding a parameterless constructor back would mean
          reaching into the static service provider from inside the window again. -->
     <NoWarn>$(NoWarn);AVLN3001</NoWarn>
+    <!-- Embedded in the exe's win32 resources, which is what Explorer, the taskbar and
+         Alt+Tab read. Regenerate with tools/build-icon.ps1 after changing the artwork. -->
+    <ApplicationIcon>Assets\centaur.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only the window icon is embedded as a resource. Assets/centaur.png is the source
+         artwork the other two are derived from and has no business in the binary. -->
+    <AvaloniaResource Include="Assets\centaur-256.png" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.2.3" />
