@@ -31,28 +31,16 @@ public class TerminalControl : Control, IPaneTerminal
     readonly ExtensionHost host;
     readonly INotificationService notifications;
     readonly TerminalTheme theme;
-    readonly ScreenBuffer initialBuffer;
     readonly TerminalRenderer renderer;
     readonly RenderProfiler profiler;
     readonly PaneFrameLoop frames;
-    readonly VtParser parser;
-    readonly object bufferLock = new();
+
+    // The screens, the scrollback view and the selection, behind the lock they share.
+    readonly TerminalSurface surface;
 
     readonly ShellChannel shell;
-
-    // Suggestion state
     readonly InlineSuggestions suggestions;
-
-    // Selection state (UI thread only)
-    readonly SelectionController selection = new();
-
-    // Reverse search state
     readonly TerminalOverlays overlays;
-
-    // Settings state
-
-    // Read-only state (per-pane)
-
     readonly KeyShortcutTable shortcuts;
 
     public string? WorkingDirectory => shell.WorkingDirectory;
@@ -71,9 +59,7 @@ public class TerminalControl : Control, IPaneTerminal
         var fpsOverlay = services.FpsOverlay;
         frames = new PaneFrameLoop(this, () => fpsOverlay.Enabled || profiler.Enabled);
 
-        // Start with a default size; will resize once we know actual bounds
-        initialBuffer = new ScreenBuffer(80, 24, theme);
-        parser = new VtParser(initialBuffer, theme);
+        surface = new TerminalSurface(theme, renderer);
 
         shell = new ShellChannel(
             notifications,
@@ -84,12 +70,12 @@ public class TerminalControl : Control, IPaneTerminal
         );
         shell.Exited += () => PtyExited?.Invoke();
         shell.WorkingDirectoryChanged += () => WorkingDirectoryChanged?.Invoke();
-        parser.Reports.Respond += shell.Respond;
+        surface.Parser.Reports.Respond += shell.Respond;
 
         suggestions = new InlineSuggestions(
             services.Suggestions,
-            parser,
-            bufferLock,
+            surface.Parser,
+            surface.BufferLock,
             frames.MarkDirty
         );
         overlays = new TerminalOverlays(this, services, theme, RunHistoryCommand);
@@ -119,8 +105,8 @@ public class TerminalControl : Control, IPaneTerminal
     KeyShortcutTable BuildShortcuts()
     {
         return new KeyShortcutTable()
-            .Add(Key.PageUp, KeyModifiers.Shift, () => ScrollByPage(up: true))
-            .Add(Key.PageDown, KeyModifiers.Shift, () => ScrollByPage(up: false))
+            .Add(Key.PageUp, KeyModifiers.Shift, () => ScrollPage(up: true))
+            .Add(Key.PageDown, KeyModifiers.Shift, () => ScrollPage(up: false))
             .Add(Key.Insert, KeyModifiers.Shift, PasteFromClipboard)
             .Add(Key.Tab, KeyModifiers.None, AcceptSuggestion)
             .Add(Key.P, KeyModifiers.Control | KeyModifiers.Shift, ToggleProfiler)
@@ -134,7 +120,7 @@ public class TerminalControl : Control, IPaneTerminal
     {
         var context = new TerminalMenuContext
         {
-            SelectionPresent = () => selection.HasSelection,
+            SelectionPresent = () => surface.Selection.HasSelection,
             ReadOnly = () => shell.IsReadOnly,
             ToggleReadOnlyRequested = () =>
             {
@@ -167,28 +153,21 @@ public class TerminalControl : Control, IPaneTerminal
         var newCols = Math.Max(1, (int)(width / renderer.cellWidth));
         var newRows = Math.Max(1, (int)(height / renderer.cellHeight));
 
-        if (newCols == parser.ActiveBuffer.columns && newRows == parser.ActiveBuffer.rows)
+        var changed = surface.ResizeTo(newCols, newRows);
+        if (changed)
         {
-            if (frames.Running)
-            {
-                shell.Start(newCols, newRows);
-            }
-            return;
+            frames.MarkDirty();
         }
-
-        lock (bufferLock)
-        {
-            parser.Resize(newCols, newRows);
-        }
-
-        frames.MarkDirty();
 
         if (frames.Running)
         {
             shell.Start(newCols, newRows);
         }
 
-        shell.Resize(newCols, newRows);
+        if (changed)
+        {
+            shell.Resize(newCols, newRows);
+        }
     }
 
     public event Action? PtyExited;
@@ -223,40 +202,21 @@ public class TerminalControl : Control, IPaneTerminal
         renderer.Dispose();
     }
 
+    // Any keystroke the user sends puts them back at the prompt, so the view follows.
+    void ScrollToLiveEdge()
+    {
+        surface.ScrollToLiveEdge();
+        frames.MarkDirty();
+    }
+
     // Called on the PTY read thread for every chunk the shell produced.
     void ParsePtyOutput(ReadOnlySequence<byte> bytes)
     {
-        lock (bufferLock)
-        {
-            foreach (var segment in bytes)
-            {
-                parser.Process(segment.Span);
-            }
-
-            suggestions.NoteParsedOutput();
-        }
+        surface.Process(bytes, suggestions.NoteParsedOutput);
 
         // PTY bytes can change anything visible - buffer contents, cursor visibility
         // (DECTCEM), alt-screen swap, scrollback. One flag covers them all.
         frames.MarkDirty();
-    }
-
-    // Any keystroke the user sends puts them back at the prompt, so the view follows.
-    void ScrollToLiveEdge()
-    {
-        lock (bufferLock)
-        {
-            parser.ActiveBuffer.Scrollback.ScrollToBottom();
-        }
-        frames.MarkDirty();
-    }
-
-    (int col, int row) PixelToGrid(Point p)
-    {
-        var active = parser.ActiveBuffer;
-        var col = Math.Clamp((int)(p.X / renderer.cellWidth), 0, active.columns - 1);
-        var row = Math.Clamp((int)(p.Y / renderer.cellHeight), 0, active.rows - 1);
-        return (col, row);
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -272,13 +232,7 @@ public class TerminalControl : Control, IPaneTerminal
             return;
         }
 
-        var (col, row) = PixelToGrid(point.Position);
-
-        lock (bufferLock)
-        {
-            selection.BeginDrag(parser.ActiveBuffer, col, row, e.ClickCount);
-        }
-
+        surface.BeginDrag(point.Position, e.ClickCount);
         frames.MarkDirty();
         e.Pointer.Capture(this);
         e.Handled = true;
@@ -287,18 +241,12 @@ public class TerminalControl : Control, IPaneTerminal
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (!selection.IsDragging)
+        if (!surface.Selection.IsDragging)
         {
             return;
         }
 
-        var (col, row) = PixelToGrid(e.GetPosition(this));
-
-        lock (bufferLock)
-        {
-            selection.ExtendDrag(parser.ActiveBuffer, col, row);
-        }
-
+        surface.ExtendDrag(e.GetPosition(this));
         frames.MarkDirty();
         e.Handled = true;
     }
@@ -306,16 +254,13 @@ public class TerminalControl : Control, IPaneTerminal
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (!selection.IsDragging)
+        if (!surface.Selection.IsDragging)
         {
             return;
         }
 
         e.Pointer.Capture(null);
-
-        var (col, row) = PixelToGrid(e.GetPosition(this));
-        selection.EndDrag(col, row);
-
+        surface.EndDrag(e.GetPosition(this));
         frames.MarkDirty();
         e.Handled = true;
     }
@@ -324,27 +269,11 @@ public class TerminalControl : Control, IPaneTerminal
     {
         base.OnPointerWheelChanged(e);
 
-        if (parser.IsAlternateScreen)
+        if (!surface.ScrollByWheel((int)e.Delta.Y))
         {
             return;
         }
 
-        var delta = (int)e.Delta.Y;
-        var scrollLines = Math.Max(1, Math.Abs(delta) * 3);
-
-        lock (bufferLock)
-        {
-            if (delta > 0)
-            {
-                parser.ActiveBuffer.Scrollback.ScrollUp(scrollLines);
-            }
-            else
-            {
-                parser.ActiveBuffer.Scrollback.ScrollDown(scrollLines);
-            }
-        }
-
-        selection.Clear();
         frames.MarkDirty();
         e.Handled = true;
     }
@@ -375,33 +304,6 @@ public class TerminalControl : Control, IPaneTerminal
         }
     }
 
-    /// <summary>Scrollback paging. Declines on the alternate screen, which has no scrollback
-    /// and where full-screen programs expect PageUp/PageDown themselves.</summary>
-    bool ScrollByPage(bool up)
-    {
-        if (parser.IsAlternateScreen)
-        {
-            return false;
-        }
-
-        lock (bufferLock)
-        {
-            var page = parser.ActiveBuffer.rows - 1;
-            if (up)
-            {
-                parser.ActiveBuffer.Scrollback.ScrollUp(page);
-            }
-            else
-            {
-                parser.ActiveBuffer.Scrollback.ScrollDown(page);
-            }
-        }
-
-        selection.Clear();
-        frames.MarkDirty();
-        return true;
-    }
-
     /// <summary>Tab accepts the inline suggestion, or declines so it reaches the shell as a
     /// tab - which is what the user wanted when there is nothing to accept.</summary>
     bool AcceptSuggestion()
@@ -416,9 +318,21 @@ public class TerminalControl : Control, IPaneTerminal
         return true;
     }
 
+    // Scrollback paging, redrawing only when the surface actually moved.
+    bool ScrollPage(bool up)
+    {
+        if (!surface.ScrollByPage(up))
+        {
+            return false;
+        }
+
+        frames.MarkDirty();
+        return true;
+    }
+
     bool CopySelectionIfPresent()
     {
-        if (!selection.HasSelection)
+        if (!surface.Selection.HasSelection)
         {
             return false;
         }
@@ -542,17 +456,13 @@ public class TerminalControl : Control, IPaneTerminal
 
     async void CopySelectionToClipboard()
     {
-        string text;
-        lock (bufferLock)
-        {
-            text = TextSelection.ExtractText(parser.ActiveBuffer, selection.Current);
-        }
+        var text = surface.SelectedText();
 
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard != null)
             await clipboard.SetTextAsync(text);
 
-        selection.Clear();
+        surface.Selection.Clear();
         frames.MarkDirty();
     }
 
@@ -561,15 +471,8 @@ public class TerminalControl : Control, IPaneTerminal
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
         var overlays = host.GetProviders<IRenderOverlay>();
 
-        // Snapshot the active buffer under lock so render doesn't block PTY reads
-        ScreenBuffer snapshot;
-        bool cursorVis;
         var snapStart = profiler.Enabled ? Stopwatch.GetTimestamp() : 0;
-        lock (bufferLock)
-        {
-            snapshot = parser.ActiveBuffer.Snapshot();
-            cursorVis = parser.Modes.CursorVisible;
-        }
+        var snapshot = surface.Snapshot(out var cursorVis);
         if (profiler.Enabled)
         {
             profiler.RecordSnapshot(Stopwatch.GetTimestamp() - snapStart);
@@ -580,7 +483,7 @@ public class TerminalControl : Control, IPaneTerminal
                 bounds,
                 snapshot,
                 renderer,
-                selection.Normalized,
+                surface.Selection.Normalized,
                 overlays,
                 cursorVisible: cursorVis,
                 readOnly: shell.IsReadOnly
