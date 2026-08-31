@@ -23,4 +23,17 @@ public sealed class TerminalServices
     public required Settings Settings { get; init; }
     public required RenderProfiler Profiler { get; init; }
     public required FpsOverlayExtension FpsOverlay { get; init; }
+
+    /// <summary>The theme every pane renders with, falling back to the built-in one when no
+    /// provider is registered (tests, or an extension that failed to activate). Resolved on
+    /// first use, because the theme provider is registered while the host activates.</summary>
+    public TerminalTheme Theme =>
+        theme ??=
+            Host.GetProvider<IThemeProvider>()
+                ?.GetThemes()
+                .FirstOrDefault(t => t.Id == "catppuccin-macchiato")
+                ?.Theme
+            ?? CatppuccinThemes.Macchiato;
+
+    TerminalTheme? theme;
 }

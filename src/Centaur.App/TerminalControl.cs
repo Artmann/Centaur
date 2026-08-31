@@ -30,7 +30,6 @@ public class TerminalControl : Control, IPaneTerminal
 
     readonly ExtensionHost host;
     readonly INotificationService notifications;
-    readonly TerminalTheme theme;
     readonly TerminalRenderer renderer;
     readonly RenderProfiler profiler;
     readonly PaneFrameLoop frames;
@@ -41,6 +40,7 @@ public class TerminalControl : Control, IPaneTerminal
     readonly ShellChannel shell;
     readonly InlineSuggestions suggestions;
     readonly TerminalInput input;
+    readonly TerminalClipboard clipboard;
     readonly TerminalOverlays overlays;
     readonly KeyShortcutTable shortcuts;
 
@@ -53,7 +53,7 @@ public class TerminalControl : Control, IPaneTerminal
         host = services.Host;
         notifications = services.Notifications;
 
-        theme = ResolveTheme(host);
+        var theme = services.Theme;
 
         profiler = services.Profiler;
         renderer = new TerminalRenderer(theme, profiler: profiler);
@@ -80,6 +80,7 @@ public class TerminalControl : Control, IPaneTerminal
             frames.MarkDirty
         );
         input = new TerminalInput(shell, suggestions, host.Events);
+        clipboard = new TerminalClipboard(this, surface, shell, frames.MarkDirty);
         overlays = new TerminalOverlays(this, services, theme, input.RunCommand);
         shortcuts = BuildShortcuts();
 
@@ -87,15 +88,6 @@ public class TerminalControl : Control, IPaneTerminal
         ClipToBounds = true;
 
         ContextMenu = BuildContextMenu();
-    }
-
-    /// <summary>The theme every pane renders with, falling back to the built-in one when no
-    /// provider is registered (tests, or an extension that failed to activate).</summary>
-    static TerminalTheme ResolveTheme(ExtensionHost host)
-    {
-        var provider = host.GetProvider<IThemeProvider>();
-        return provider?.GetThemes().FirstOrDefault(t => t.Id == "catppuccin-macchiato")?.Theme
-            ?? CatppuccinThemes.Macchiato;
     }
 
     public event Action<SplitDirection>? SplitRequested;
@@ -109,11 +101,11 @@ public class TerminalControl : Control, IPaneTerminal
         return new KeyShortcutTable()
             .Add(Key.PageUp, KeyModifiers.Shift, () => ScrollPage(up: true))
             .Add(Key.PageDown, KeyModifiers.Shift, () => ScrollPage(up: false))
-            .Add(Key.Insert, KeyModifiers.Shift, PasteFromClipboard)
+            .Add(Key.Insert, KeyModifiers.Shift, clipboard.Paste)
             .Add(Key.Tab, KeyModifiers.None, input.AcceptSuggestion)
             .Add(Key.P, KeyModifiers.Control | KeyModifiers.Shift, ToggleProfiler)
-            .Add(Key.C, KeyModifiers.Control, CopySelectionIfPresent)
-            .Add(Key.V, KeyModifiers.Control, PasteFromClipboard)
+            .Add(Key.C, KeyModifiers.Control, clipboard.CopyIfSelected)
+            .Add(Key.V, KeyModifiers.Control, clipboard.Paste)
             .Add(Key.R, KeyModifiers.Control, overlays.OpenReverseSearch)
             .Add(Key.OemComma, KeyModifiers.Control, overlays.OpenSettings);
     }
@@ -129,8 +121,8 @@ public class TerminalControl : Control, IPaneTerminal
                 shell.IsReadOnly = !shell.IsReadOnly;
                 frames.MarkDirty();
             },
-            CopyRequested = CopySelectionToClipboard,
-            PasteRequested = PasteFromClipboard,
+            CopyRequested = clipboard.Copy,
+            PasteRequested = clipboard.Paste,
             SplitRequested = direction => this.SplitRequested?.Invoke(direction),
             CloseRequested = () => this.CloseRequested?.Invoke(),
         };
@@ -315,17 +307,6 @@ public class TerminalControl : Control, IPaneTerminal
         return true;
     }
 
-    bool CopySelectionIfPresent()
-    {
-        if (!surface.Selection.HasSelection)
-        {
-            return false;
-        }
-
-        CopySelectionToClipboard();
-        return true;
-    }
-
     void ToggleProfiler()
     {
         profiler.Enabled = !profiler.Enabled;
@@ -354,39 +335,6 @@ public class TerminalControl : Control, IPaneTerminal
         suggestions.NoteTypedText(e.Text);
         shell.Send(Encoding.UTF8.GetBytes(e.Text));
         e.Handled = true;
-    }
-
-    async void PasteFromClipboard()
-    {
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard == null)
-        {
-            return;
-        }
-
-        var text = await clipboard.GetTextAsync();
-        if (string.IsNullOrEmpty(text))
-        {
-            return;
-        }
-
-        // Normalize line endings to \r for the terminal
-        text = text.Replace("\r\n", "\r").Replace("\n", "\r");
-
-        var bytes = Encoding.UTF8.GetBytes(text);
-        shell.Send(bytes);
-    }
-
-    async void CopySelectionToClipboard()
-    {
-        var text = surface.SelectedText();
-
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard != null)
-            await clipboard.SetTextAsync(text);
-
-        surface.Selection.Clear();
-        frames.MarkDirty();
     }
 
     public override void Render(DrawingContext context)
