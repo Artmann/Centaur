@@ -39,6 +39,7 @@ Designs for a single feature, written before implementation. Dated,
 `YYYY-MM-DD-short-title.md`.
 
 - [Spec: Reverse Search (Ctrl+R)](spec-2026-03-22-reverse-search.md)
+- [Spec: Settings Page](spec-2026-08-31-settings-page.md)
 
 ## Writing a new document
 

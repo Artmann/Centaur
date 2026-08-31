@@ -88,6 +88,40 @@ The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage compon
 - `TerminalControl` resolves the host via `App.Services.GetRequiredService<ExtensionHost>()`
 - `ActivateAsync` is called on attach, `DisposeAsync` on detach
 - Provider interfaces that need framework types (e.g., SkiaSharp) live in the project that owns those types (e.g., `IRenderOverlay` in Centaur.Rendering), not in Core
+- **A registration for a derived interface does not satisfy the base one.** `ExtensionHost` is
+  built from `IEnumerable<IProvider>`, and `AddSingleton<IThemeProvider, CatppuccinThemeProvider>()`
+  does not appear in it even though `IThemeProvider : IProvider`. Register the concrete type once
+  and forward both interfaces to it
+- **The container does not detect a cycle that runs through factory lambdas.** `ServiceProvider`
+  only sees cycles through constructor-injected call sites; a cycle closed by two
+  `AddSingleton(sp => ...)` factories re-enters its own cache for the same key and deadlocks
+  silently — the app starts, stays alive, and never shows a window, with nothing on stderr.
+  Break such a cycle with a `Func<T>` resolved on demand, not a direct dependency.
+  `AppServiceGraphTests` resolves the graph on a background thread with a deadline so this fails
+  a test instead of hanging a run
+
+## Settings
+
+- `Settings` (`Centaur.Core.Terminal`) is a flat bag of properties persisted to `settings.json`
+  through `ConfigPaths`, clamped on load, raising `Changed(id)` on every write. There is no apply
+  or cancel step anywhere in the settings UI
+- The settings page renders from `SettingsRegistry.All`, a list of `SettingDescriptor` records.
+  **Adding a setting is one property on `Settings` plus one descriptor** — never a new layout
+  method. Adding a tab is one `SettingsTab` enum value. Search picks up both for free
+- Search fuzzy-matches `Title`, `Keywords` and `Section` only. `FuzzyMatcher` is
+  subsequence-based, so matching the prose `Description` makes almost every row match almost
+  every query
+- **Fluent styles controls through theme resources, not properties.** Setting `Background` or
+  `Foreground` on a `TextBox`, `ComboBox`, `Slider` or `ToggleSwitch` leaves stock Fluent chrome
+  bleeding through on hover and focus — `OverlayTheme.StyleTextBox` exists to stuff 21 resource
+  keys onto each box. The settings page uses a hand-rolled pill picker and numeric stepper
+  (a `Border` plus a `TextBlock`) rather than pay that cost three more times
+- Cells store resolved `uint` ARGB colours, not palette indices, so a theme change needs an
+  explicit recolour pass over both screens and the scrollback (`TerminalSurface.SetTheme`).
+  Without it, text already on screen keeps the old palette
+- The chrome brushes are published into `App.Resources` once and **mutated in place** afterwards.
+  Avalonia brushes are observable, so every control already holding one repaints without
+  reloading a dictionary
 
 ## Error Handling
 

@@ -63,14 +63,13 @@ state, commands, and observable proof.
   bracketed paste, and pasting an image as a file.
 - [Command history](./command-history.md) covers inline suggestions and the reverse-search
   overlay, both fed by the shared history file.
+- [Settings](./settings.md) covers the settings page: its two tabs, the search that spans them,
+  live theme and font changes, the starting-directory choice, and what persists.
 
 ## Not yet mapped
 
 Real user-facing surface with no feature file yet. Add one before claiming any of it is verified.
 
-- **Settings overlay** (`ctrl+comma`): starting-directory choice between last-used, home and a
-  specific folder. The harness writes `settings.json` before launch to pin the workdir, so the
-  overlay's own write path is exercised by nothing here.
 - **Scrollback**: `shift+pageup` / `shift+pagedown` and the mouse wheel.
 - **Read-Only Mode** on the pane context menu.
 - **Mouse reporting** to a full-screen program that grabs the pointer, and the `shift` escape

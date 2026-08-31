@@ -67,13 +67,13 @@ out of scope — see bottom.
 
 > App-layer work on existing provider/overlay infrastructure.
 
-- [ ] **Real config file** — expand `Settings.cs` (theme, font family/size, scrollback limit, keybindings, padding, cursor style, opacity). Decide JSON vs Ghostty-style `key = value`.
+- [x] **Real config file** — `Settings.cs` now carries theme, font size, line height, scrollback limit, padding, cursor style and blink, bell mode, shell command and window opacity, clamped on load. JSON, edited through the settings page. Keybindings are still hardcoded.
 - [ ] **Hot-reload** — FileSystemWatcher → `ConfigChangedEvent` (theme/font already flow through providers).
 - [ ] **Configurable keybindings** — replace hardcoded keys in `TerminalControl.cs` with a keymap + action registry.
-- [ ] **Runtime theme switching** — surface all providers (not hardcoded Macchiato) + follow-OS light/dark.
+- [x] **Runtime theme switching** — every `IThemeProvider` palette is offered in Settings → Appearance and applies live to the panes and the window chrome. Follow-OS light/dark is still open.
 - [ ] **Command palette** — fuzzy action launcher (reuse `FuzzyMatcher`); actions via a provider.
 - [ ] **Scrollback text search** — in-buffer find with match highlighting (distinct from history reverse-search).
-- [ ] **Finish stubs** — wire up `ReverseSearchExtension` + settings overlay (font/theme controls).
+- [x] **Finish stubs** — the settings overlay is now a full settings page with General and Appearance tabs, search across both, and live font/theme controls. `SettingsExtension` republishes changes on the event bus.
 - [ ] **URL detection + click** — regex-detect URLs, render clickable, open in browser; honor OSC 8 links.
 - [ ] **Window title** — with only one tab there is no window title; show a centered title defaulting to "Centaur", editable like a tab title.
 - [ ] _(optional)_ Quick-terminal dropdown — global hotkey + slide-in window.
