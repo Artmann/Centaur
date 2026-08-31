@@ -55,16 +55,15 @@ sealed class SgrPen
         template = new Cell(' ', theme.Foreground, theme.Background);
     }
 
-    /// <summary>Pen colours, saved and restored by DECSC/DECRC.</summary>
-    public uint Foreground
+    /// <summary>Pen colours. DECSC/DECRC go through <see cref="Snapshot"/> instead, which
+    /// carries the style flags with them.</summary>
+    uint Foreground
     {
-        get => template.foreground;
         set => template = template with { foreground = value };
     }
 
-    public uint Background
+    uint Background
     {
-        get => template.background;
         set => template = template with { background = value };
     }
 
@@ -77,6 +76,14 @@ sealed class SgrPen
 
     /// <summary>The cell to write for <paramref name="c"/> under the current styles.</summary>
     public Cell Paint(char c) => template with { character = c };
+
+    /// <summary>The whole pen, for DECSC to hold until DECRC hands it back. The template is
+    /// an immutable record, so the snapshot cannot be disturbed by later SGR.</summary>
+    public Cell Snapshot() => template;
+
+    /// <summary>DECRC: back to a snapshot, keeping the hyperlink the same way
+    /// <see cref="Reset"/> does - OSC 8 opened it and only OSC 8 closes it.</summary>
+    public void RestoreFrom(Cell saved) => template = saved with { hyperlink = template.hyperlink };
 
     /// <summary>SGR 0: back to the theme's colours with no styles. Keeps the hyperlink, which
     /// OSC 8 owns rather than SGR.</summary>
