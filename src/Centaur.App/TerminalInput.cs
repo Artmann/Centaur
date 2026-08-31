@@ -1,6 +1,7 @@
 using System.Text;
 using Avalonia.Input;
 using Centaur.Core.Hosting;
+using Centaur.Core.Terminal;
 
 namespace Centaur.App;
 
@@ -18,11 +19,21 @@ public sealed class TerminalInput
     readonly InlineSuggestions suggestions;
     readonly ITerminalEvents events;
 
-    public TerminalInput(ShellChannel shell, InlineSuggestions suggestions, ITerminalEvents events)
+    // Only for the modes: DECCKM decides which form the cursor keys take, and it flips
+    // whenever a full-screen program starts or exits, so it is read per keystroke.
+    readonly VtParser parser;
+
+    public TerminalInput(
+        ShellChannel shell,
+        InlineSuggestions suggestions,
+        ITerminalEvents events,
+        VtParser parser
+    )
     {
         this.shell = shell;
         this.suggestions = suggestions;
         this.events = events;
+        this.parser = parser;
     }
 
     /// <summary>The bytes a key press sends, or null when the key has nothing to send.</summary>
@@ -90,7 +101,7 @@ public sealed class TerminalInput
             suggestions.Clear();
         }
 
-        return TerminalKeyEncoder.Encode(key, modifiers);
+        return TerminalKeyEncoder.Encode(key, modifiers, parser.Modes.ApplicationCursorKeys);
     }
 
     // Enter is the only moment the typed line is still on screen and known to be complete,

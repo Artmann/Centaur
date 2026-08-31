@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Centaur.App.Menus;
 using Centaur.App.Splits;
 using Centaur.Core.Hosting;
+using Centaur.Core.Terminal;
 using Centaur.Rendering;
 
 namespace Centaur.App;
@@ -30,6 +31,7 @@ public class TerminalControl : Control, IPaneTerminal
     readonly ShellChannel shell;
     readonly InlineSuggestions suggestions;
     readonly TerminalInput input;
+    readonly TerminalMouse mouse;
     readonly TerminalClipboard clipboard;
     readonly TerminalOverlays overlays;
     readonly KeyShortcutTable shortcuts;
@@ -49,18 +51,8 @@ public class TerminalControl : Control, IPaneTerminal
         renderer = new TerminalRenderer(theme, profiler: profiler);
         frames = CreateFrameLoop(services.FpsOverlay);
 
-        surface = new TerminalSurface(theme, renderer);
-
-        shell = new ShellChannel(
-            notifications,
-            services.Settings,
-            initialWorkingDirectory,
-            ParsePtyOutput,
-            ScrollToLiveEdge
-        );
-        shell.Exited += () => PtyExited?.Invoke();
-        shell.WorkingDirectoryChanged += () => WorkingDirectoryChanged?.Invoke();
-        surface.Parser.Reports.Respond += shell.Respond;
+        surface = new TerminalSurface(theme, renderer, frames.MarkDirty);
+        shell = CreateShell(services.Settings, initialWorkingDirectory);
 
         suggestions = new InlineSuggestions(
             services.Suggestions,
@@ -68,7 +60,8 @@ public class TerminalControl : Control, IPaneTerminal
             surface.BufferLock,
             frames.MarkDirty
         );
-        input = new TerminalInput(shell, suggestions, host.Events);
+        input = new TerminalInput(shell, suggestions, host.Events, surface.Parser);
+        mouse = new TerminalMouse(surface, shell);
         clipboard = new TerminalClipboard(this, surface, shell, notifications, frames.MarkDirty);
         overlays = new TerminalOverlays(this, services, theme, input.RunCommand);
         shortcuts = BuildShortcuts();
@@ -77,6 +70,27 @@ public class TerminalControl : Control, IPaneTerminal
         ClipToBounds = true;
 
         ContextMenu = BuildContextMenu();
+
+        // A right-click a program received must not also open our menu. Shift+right-click
+        // routes local, so the menu stays reachable.
+        AddHandler(ContextRequestedEvent, (_, e) => e.Handled = mouse.SuppressContextMenu);
+    }
+
+    // The pty and everything hanging off it: output goes to the parser, a keystroke puts the
+    // view back at the prompt, and the parser's protocol replies go straight back out.
+    ShellChannel CreateShell(Settings settings, string? initialWorkingDirectory)
+    {
+        var channel = new ShellChannel(
+            notifications,
+            settings,
+            initialWorkingDirectory,
+            ParsePtyOutput,
+            surface.ScrollToLiveEdge
+        );
+        channel.Exited += () => PtyExited?.Invoke();
+        channel.WorkingDirectoryChanged += () => WorkingDirectoryChanged?.Invoke();
+        surface.Parser.Reports.Respond += channel.Respond;
+        return channel;
     }
 
     // The two things that need frames without the terminal itself changing: overlays on their
@@ -93,8 +107,8 @@ public class TerminalControl : Control, IPaneTerminal
     KeyShortcutTable BuildShortcuts()
     {
         return new KeyShortcutTable()
-            .Add(Key.PageUp, KeyModifiers.Shift, () => ScrollPage(up: true))
-            .Add(Key.PageDown, KeyModifiers.Shift, () => ScrollPage(up: false))
+            .Add(Key.PageUp, KeyModifiers.Shift, () => surface.ScrollByPage(up: true))
+            .Add(Key.PageDown, KeyModifiers.Shift, () => surface.ScrollByPage(up: false))
             .Add(Key.Insert, KeyModifiers.Shift, clipboard.Paste)
             .Add(Key.Tab, KeyModifiers.None, input.AcceptSuggestion)
             .Add(Key.P, KeyModifiers.Control | KeyModifiers.Shift, ToggleProfiler)
@@ -125,18 +139,16 @@ public class TerminalControl : Control, IPaneTerminal
         return TerminalContextMenuBuilder.Create(host, context);
     }
 
+    // The grid follows the control's size, and the pty is not started until there is one:
+    // a shell launched at the placeholder 80x24 would lay out its prompt for the wrong width.
     protected override Size ArrangeOverride(Size finalSize)
     {
         var result = base.ArrangeOverride(finalSize);
-        UpdateGridSize(finalSize.Width, finalSize.Height);
-        return result;
-    }
 
-    void UpdateGridSize(double width, double height)
-    {
+        var (width, height) = (finalSize.Width, finalSize.Height);
         if (width <= 0 || height <= 0)
         {
-            return;
+            return result;
         }
 
         var newCols = Math.Max(1, (int)(width / renderer.cellWidth));
@@ -157,6 +169,8 @@ public class TerminalControl : Control, IPaneTerminal
         {
             shell.Resize(newCols, newRows);
         }
+
+        return result;
     }
 
     public event Action? PtyExited;
@@ -191,13 +205,6 @@ public class TerminalControl : Control, IPaneTerminal
         renderer.Dispose();
     }
 
-    // Any keystroke the user sends puts them back at the prompt, so the view follows.
-    void ScrollToLiveEdge()
-    {
-        surface.ScrollToLiveEdge();
-        frames.MarkDirty();
-    }
-
     // Called on the PTY read thread for every chunk the shell produced.
     void ParsePtyOutput(ReadOnlySequence<byte> bytes)
     {
@@ -213,6 +220,16 @@ public class TerminalControl : Control, IPaneTerminal
         base.OnPointerPressed(e);
 
         var point = e.GetCurrentPoint(this);
+
+        // A program with mouse tracking on owns the pointer, so it gets the click before the
+        // selection does. Focus still moves here either way - the pane is being clicked.
+        if (mouse.TryHandlePress(point.Properties, e.KeyModifiers, point.Position))
+        {
+            Focus();
+            e.Handled = true;
+            return;
+        }
+
         if (!point.Properties.IsLeftButtonPressed)
         {
             // Right-click (and middle-click) bypass selection so the context menu can open
@@ -230,12 +247,20 @@ public class TerminalControl : Control, IPaneTerminal
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+
+        var point = e.GetCurrentPoint(this);
+        if (mouse.TryHandleMove(point.Properties, e.KeyModifiers, point.Position))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (!surface.Selection.IsDragging)
         {
             return;
         }
 
-        surface.ExtendDrag(e.GetPosition(this));
+        surface.ExtendDrag(point.Position);
         frames.MarkDirty();
         e.Handled = true;
     }
@@ -243,13 +268,21 @@ public class TerminalControl : Control, IPaneTerminal
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+
+        var position = e.GetPosition(this);
+        if (mouse.TryHandleRelease(e.InitialPressMouseButton, e.KeyModifiers, position))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (!surface.Selection.IsDragging)
         {
             return;
         }
 
         e.Pointer.Capture(null);
-        surface.EndDrag(e.GetPosition(this));
+        surface.EndDrag(position);
         frames.MarkDirty();
         e.Handled = true;
     }
@@ -258,13 +291,17 @@ public class TerminalControl : Control, IPaneTerminal
     {
         base.OnPointerWheelChanged(e);
 
-        if (!surface.ScrollByWheel((int)e.Delta.Y))
+        var point = e.GetCurrentPoint(this);
+        if (mouse.TryHandleWheel((int)e.Delta.Y, e.KeyModifiers, point.Position))
         {
+            e.Handled = true;
             return;
         }
 
-        frames.MarkDirty();
-        e.Handled = true;
+        if (surface.ScrollByWheel((int)e.Delta.Y))
+        {
+            e.Handled = true;
+        }
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -288,18 +325,6 @@ public class TerminalControl : Control, IPaneTerminal
             shell.Send(bytes);
             e.Handled = true;
         }
-    }
-
-    // Scrollback paging, redrawing only when the surface actually moved.
-    bool ScrollPage(bool up)
-    {
-        if (!surface.ScrollByPage(up))
-        {
-            return false;
-        }
-
-        frames.MarkDirty();
-        return true;
     }
 
     void ToggleProfiler()
