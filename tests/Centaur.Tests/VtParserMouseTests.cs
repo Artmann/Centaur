@@ -159,6 +159,30 @@ public class VtParserMouseTests : VtParserFixture
     }
 
     [Fact]
+    public void MouseTracking_X10_Mode9()
+    {
+        parser.Send("\x1b[?9h");
+        Assert.Equal(MouseTrackingMode.X10, parser.Modes.MouseTracking);
+        parser.Send("\x1b[?9l");
+        Assert.Equal(MouseTrackingMode.Off, parser.Modes.MouseTracking);
+    }
+
+    // Alternate scroll is on unless the program turns it off, which is what makes the wheel
+    // reach a full-screen program that never asked for mouse tracking.
+    [Fact]
+    public void AltScrollMode_DefaultsOn()
+    {
+        Assert.True(parser.Modes.AltScrollMode);
+    }
+
+    [Fact]
+    public void AltScrollMode_Mode1007Reset()
+    {
+        parser.Send("\x1b[?1007l");
+        Assert.False(parser.Modes.AltScrollMode);
+    }
+
+    [Fact]
     public void AltScrollMode_Mode1007()
     {
         parser.Send("\x1b[?1007h");

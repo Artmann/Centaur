@@ -110,24 +110,31 @@ public sealed class ShellChannel
     }
 
     /// <summary>Sends user input, unless the pane is read-only.</summary>
-    public async void Send(byte[] data)
+    public void Send(byte[] data)
     {
-        var target = session;
-        if (target == null || IsReadOnly)
+        if (IsReadOnly)
         {
             return;
         }
 
         onUserInput();
+        Write(data, "Input Error");
+    }
 
-        try
+    /// <summary>
+    /// Writes a mouse report. Read-only silences it like user input - a pane parked beside a
+    /// running command should not be clickable either - but unlike <see cref="Send"/> it leaves
+    /// the view where it is: under button-event tracking every drag pixel comes through here,
+    /// and yanking the pane to the live edge on each one would make scrollback unusable.
+    /// </summary>
+    public void SendMouse(byte[] data)
+    {
+        if (IsReadOnly)
         {
-            await target.WriteAsync(data);
+            return;
         }
-        catch (Exception ex)
-        {
-            notifications.Show("Input Error", ex.Message, NotificationSeverity.Error);
-        }
+
+        Write(data, "Input Error");
     }
 
     /// <summary>
@@ -137,7 +144,11 @@ public sealed class ShellChannel
     /// a program that never gets them stalls on its startup timeouts before it will echo.
     /// Called from the PTY read thread, but it writes to the input pipe, so nothing contends.
     /// </summary>
-    public async void Respond(byte[] data)
+    public void Respond(byte[] data) => Write(data, "Terminal Error");
+
+    // The one place bytes reach the pty. Fire-and-forget: nothing upstream awaits a keystroke,
+    // and a failed write is reported rather than thrown into a void.
+    async void Write(byte[] data, string errorTitle)
     {
         var target = session;
         if (target == null)
@@ -151,7 +162,7 @@ public sealed class ShellChannel
         }
         catch (Exception ex)
         {
-            notifications.Show("Terminal Error", ex.Message, NotificationSeverity.Error);
+            notifications.Show(errorTitle, ex.Message, NotificationSeverity.Error);
         }
     }
 

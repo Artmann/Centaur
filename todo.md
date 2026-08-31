@@ -15,7 +15,7 @@ out of scope — see bottom.
 
 - [x] **Render SGR text styles** — store bold/faint/italic/underline/strikethrough/inverse/invisible/blink in the cell (`ScreenBuffer.cs`); draw in `TerminalRenderer.cs` (bold+italic typeface selection, inverse fg/bg swap). _Already parsed, just dropped._
 - [x] **Underline variants** — single/double/curly/dotted/dashed + underline color (`SGR 4:x`, `58;…`).
-- [ ] **Mouse reporting** — modes 1000/1002/1003/1006 (+1004 focus, 1007 alt-scroll); translate Avalonia pointer events in `TerminalControl.cs` to SGR reports; Shift overrides to local selection.
+- [x] **Mouse reporting** — modes 9/1000/1002/1003/1006 (+1004 focus, 1007 alt-scroll); Avalonia pointer events routed through `TerminalMouse` to SGR or legacy X10 reports; Shift overrides to local selection; the wheel becomes cursor keys on the alternate screen. 1005 and 1015 stay unimplemented, and DECRQM reports them as unrecognised so programs pick a form we speak.
 - [x] **Bracketed paste** — wrap paste in `CSI 200~ … 201~` when mode 2004 is on.
 - [ ] **OSC dispatcher** (stop discarding OSC in `VtParser.cs`):
     - [ ] OSC 0/1/2 → window/tab title (`TitleChangedEvent` → tab).
