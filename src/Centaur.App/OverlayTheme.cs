@@ -60,32 +60,61 @@ sealed class OverlayTheme
     /// </summary>
     public void StyleTextBox(TextBox box)
     {
-        box.Foreground = Foreground;
-        box.CaretBrush = Accent;
-        box.BorderBrush = Dim;
+        StyleTextBox(box, Brushes.Transparent, Foreground, Brushes.Transparent, Accent);
 
-        foreach (var key in transparentKeys)
+        // The overlays draw their own frame, so the property keeps a visible border even
+        // though every border state resource is transparent.
+        box.BorderBrush = Dim;
+    }
+
+    /// <summary>
+    /// The same resource-key override for a box that isn't part of an overlay and so
+    /// carries its own palette — the tab strip's rename editor.
+    /// </summary>
+    public static void StyleTextBox(
+        TextBox box,
+        IBrush background,
+        IBrush foreground,
+        IBrush border,
+        IBrush caret
+    )
+    {
+        box.Background = background;
+        box.Foreground = foreground;
+        box.CaretBrush = caret;
+        box.BorderBrush = border;
+
+        foreach (var key in backgroundKeys)
         {
-            box.Resources[key] = Brushes.Transparent;
+            box.Resources[key] = background;
+        }
+
+        foreach (var key in borderKeys)
+        {
+            box.Resources[key] = border;
         }
 
         foreach (var key in foregroundKeys)
         {
-            box.Resources[key] = Foreground;
+            box.Resources[key] = foreground;
         }
     }
 
-    static readonly string[] transparentKeys =
+    static readonly string[] backgroundKeys =
     [
         "TextBoxBackground",
         "TextBoxBackgroundPointerOver",
         "TextBoxBackgroundFocused",
-        "TextBoxBorderBrush",
-        "TextBoxBorderBrushPointerOver",
-        "TextBoxBorderBrushFocused",
         "TextControlBackground",
         "TextControlBackgroundPointerOver",
         "TextControlBackgroundFocused",
+    ];
+
+    static readonly string[] borderKeys =
+    [
+        "TextBoxBorderBrush",
+        "TextBoxBorderBrushPointerOver",
+        "TextBoxBorderBrushFocused",
         "TextControlBorderBrush",
         "TextControlBorderBrushPointerOver",
         "TextControlBorderBrushFocused",

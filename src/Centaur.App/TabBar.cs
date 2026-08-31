@@ -72,6 +72,7 @@ public class TabBar : Control
             Height = 28,
             MinWidth = 100,
             MaxWidth = 200,
+            VerticalAlignment = VerticalAlignment.Center,
             Background = isActive ? TabColors.activeBg : TabColors.inactiveBg,
         };
 
@@ -91,13 +92,7 @@ public class TabBar : Control
         var closeButton = CreateCloseButton(tabId);
         panel.Children.Add(closeButton);
 
-        var rename = new TabRenameEditor(
-            panel,
-            label,
-            tab.Title,
-            newName => TabRenamed?.Invoke(tabId, newName)
-        );
-        panel.ContextMenu = CreateContextMenu(tabId, rename);
+        panel.ContextMenu = CreateContextMenu(tabId, AttachRename(panel, label, tab, closeButton));
 
         AttachHover(panel, closeButton, isActive);
         drag.Attach(panel, tabId);
@@ -156,6 +151,37 @@ public class TabBar : Control
         return new ContextMenu { Items = { renameMenuItem, closeMenuItem } };
     }
 
+    /// <summary>
+    /// The tab's inline editor and the double-click that opens it. The close button steps
+    /// aside while editing so the box gets the whole tab.
+    ///
+    /// The press handler goes on ahead of the drag controller, which handles every left
+    /// press: a handled press stops the handlers behind it, so the second click of a
+    /// double-click edits instead of starting a drag.
+    /// </summary>
+    TabRenameEditor AttachRename(Panel panel, TextBlock label, TabItem tab, Button closeButton)
+    {
+        var tabId = tab.Id;
+        var rename = new TabRenameEditor(
+            panel,
+            label,
+            tab.Title,
+            newName => TabRenamed?.Invoke(tabId, newName)
+        );
+        rename.EditingChanged += editing => closeButton.IsVisible = !editing;
+
+        panel.PointerPressed += (_, e) =>
+        {
+            if (e.ClickCount == 2 && e.GetCurrentPoint(panel).Properties.IsLeftButtonPressed)
+            {
+                rename.Start();
+                e.Handled = true;
+            }
+        };
+
+        return rename;
+    }
+
     /// <summary>Lights the tab up under the pointer and reveals its close button. The active
     /// tab keeps its own background, so only the close button reacts there.</summary>
     static void AttachHover(Panel panel, Button closeButton, bool isActive)
@@ -186,6 +212,7 @@ public class TabBar : Control
             FontSize = 14,
             Width = 28,
             Height = 28,
+            VerticalAlignment = VerticalAlignment.Center,
             Padding = new Thickness(0),
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,

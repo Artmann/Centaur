@@ -12,7 +12,8 @@ static class TabColors
     public static readonly IBrush inactiveText = SolidColorBrush.Parse("#7F849C");
     public static readonly IBrush closeHoverBg = SolidColorBrush.Parse("#ED8796");
     public static readonly IBrush closeHoverText = SolidColorBrush.Parse("#24273A");
-    public static readonly IBrush editorBg = SolidColorBrush.Parse("#1E2030");
+    public static readonly IBrush editorBg = SolidColorBrush.Parse("#24273A");
     public static readonly IBrush editorBorder = SolidColorBrush.Parse("#494D64");
+    public static readonly IBrush editorSelection = SolidColorBrush.Parse("#5B6078");
     public static readonly IBrush dropIndicator = SolidColorBrush.Parse("#8AADF4");
 }

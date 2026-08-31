@@ -11,10 +11,10 @@
     Background="#24273A"
     ExtendClientAreaToDecorationsHint="True"
     ExtendClientAreaChromeHints="NoChrome"
-    ExtendClientAreaTitleBarHeightHint="28">
+    ExtendClientAreaTitleBarHeightHint="36">
     <Panel>
         <!-- Title bar wrapper (shifts down when maximized via OffScreenMargin) -->
-        <Panel x:Name="titleBarPanel" Height="28" VerticalAlignment="Top">
+        <Panel x:Name="titleBarPanel" Height="36" VerticalAlignment="Top">
             <!-- Drag region -->
             <Border x:Name="titleBar" Background="Transparent" />
             <!-- Tab bar (replaces static title) -->
@@ -40,7 +40,7 @@
         <!-- Base caption button style -->
         <Style Selector="Button.captionButton">
             <Setter Property="Width" Value="46" />
-            <Setter Property="Height" Value="28" />
+            <Setter Property="Height" Value="36" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
@@ -76,6 +76,7 @@
 
         <!-- Context menu (Catppuccin Macchiato) -->
         <Style Selector="ContextMenu">
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="Background" Value="#363A4F" />
             <Setter Property="BorderBrush" Value="#494D64" />
             <Setter Property="BorderThickness" Value="1" />
@@ -83,8 +84,10 @@
             <Setter Property="CornerRadius" Value="6" />
         </Style>
         <Style Selector="MenuItem">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="MinHeight" Value="0" />
             <Setter Property="Foreground" Value="#CAD3F5" />
-            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="Padding" Value="10,5" />
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="Margin" Value="0,1" />
         </Style>
