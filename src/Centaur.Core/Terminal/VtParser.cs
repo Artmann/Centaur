@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-
 namespace Centaur.Core.Terminal;
 
 public class VtParser
@@ -38,37 +36,8 @@ public class VtParser
     /// and default colours, the last exit code - and the OSC 52 clipboard event.</summary>
     public OscHandler Osc => osc;
 
-    enum State
-    {
-        Ground,
-        Escape,
-        Csi,
-        CsiParam,
-        Osc,
-        OscEscape,
-    }
-
-    State state = State.Ground;
-    readonly List<int> csiParams = new();
-
-    // Parallel to csiParams: true when the separator before that param was a
-    // colon (':'), marking it as a sub-parameter of the preceding param. Used
-    // by SGR to distinguish ESC[4:3m (curly underline) from ESC[4;3m
-    // (underline + italic).
-    readonly List<bool> csiParamIsColon = new();
-    bool pendingColon;
-    int currentParam;
-
-    // CSI private prefix ('?', '>', '=', '<') and intermediate byte (e.g. '$'
-    // for DECRQM). 0 when absent. Reset at the start of each CSI sequence.
-    char csiPrefix;
-    char csiIntermediate;
-
-    // OSC payload accumulator (bytes between ESC] and the terminator).
-    readonly List<byte> oscBuffer = new();
-
-    // UTF-8 decoder state
-    readonly Utf8Decoder utf8 = new();
+    // The byte-level state machine; this parser only acts on whole sequences.
+    readonly VtTokenizer tokenizer = new();
 
     public VtParser(ScreenBuffer buffer)
         : this(buffer, CatppuccinThemes.Macchiato) { }
@@ -99,166 +68,53 @@ public class VtParser
     {
         foreach (var b in data)
         {
-            ProcessByte(b);
-        }
-    }
-
-    void ProcessByte(byte b)
-    {
-        switch (state)
-        {
-            case State.Ground:
-                ProcessGround(b);
-                break;
-            case State.Escape:
-                ProcessEscape(b);
-                break;
-            case State.Csi:
-            case State.CsiParam:
-                ProcessCsi(b);
-                break;
-            case State.Osc:
-                ProcessOsc(b);
-                break;
-            case State.OscEscape:
-                // ESC \ (ST) terminates the OSC; any other byte just ends it.
-                if (b == (byte)'\\')
-                {
-                    osc.Dispatch(CollectionsMarshal.AsSpan(oscBuffer), buffer);
-                }
-                state = State.Ground;
-                break;
-        }
-    }
-
-    void ProcessGround(byte b)
-    {
-        if (b == 0x1B) // ESC
-        {
-            state = State.Escape;
-            return;
-        }
-        if (ScreenCommands.TryExecuteControl(buffer, b))
-        {
-            return;
-        }
-
-        if (utf8.TryDecode(b, out var text))
-        {
-            foreach (var c in text)
+            switch (tokenizer.Feed(b))
             {
-                ScreenOps.Write(buffer, pen.Paint(c));
+                case VtToken.Print:
+                    foreach (var c in tokenizer.Text)
+                    {
+                        ScreenOps.Write(buffer, pen.Paint(c));
+                    }
+                    break;
+                case VtToken.Control:
+                    _ = ScreenCommands.TryExecuteControl(buffer, tokenizer.Code);
+                    break;
+                case VtToken.Escape:
+                    ExecuteEscape((char)tokenizer.Code);
+                    break;
+                case VtToken.Csi:
+                    ExecuteCsi((char)tokenizer.Code);
+                    break;
+                case VtToken.Osc:
+                    osc.Dispatch(tokenizer.OscPayload, buffer);
+                    break;
             }
         }
-        else if (b >= 0x20) // ASCII printable
-        {
-            ScreenOps.Write(buffer, pen.Paint((char)b));
-        }
     }
 
-    void ProcessEscape(byte b)
+    /// <summary>Acts on a two-byte escape. ESC [ and ESC ] open longer sequences and never
+    /// reach here; the tokenizer has already turned them into a CSI or OSC token.</summary>
+    void ExecuteEscape(char final)
     {
-        // Every escape ends here unless it opens a longer sequence.
-        state = State.Ground;
-        switch (b)
+        switch (final)
         {
-            case (byte)'[': // CSI
-                BeginCsi();
-                break;
-            case (byte)'D': // IND - Index (move down)
+            case 'D': // IND - Index (move down)
                 ScreenOps.LineFeed(buffer);
                 break;
-            case (byte)'E': // NEL - Next Line
+            case 'E': // NEL - Next Line
                 buffer.cursorX = 0;
                 ScreenOps.LineFeed(buffer);
                 break;
-            case (byte)'M': // RI - Reverse Index (move up)
+            case 'M': // RI - Reverse Index (move up)
                 ScreenOps.ReverseIndex(buffer);
                 break;
-            case (byte)']': // OSC - Operating System Command
-                state = State.Osc;
-                oscBuffer.Clear();
-                break;
-            case (byte)'7': // DECSC - Save cursor
+            case '7': // DECSC - Save cursor
                 cursors.Save(buffer);
                 break;
-            case (byte)'8': // DECRC - Restore cursor
+            case '8': // DECRC - Restore cursor
                 cursors.Restore(buffer);
                 break;
         }
-    }
-
-    void BeginCsi()
-    {
-        state = State.Csi;
-        csiParams.Clear();
-        csiParamIsColon.Clear();
-        pendingColon = false;
-        currentParam = 0;
-        csiPrefix = '\0';
-        csiIntermediate = '\0';
-    }
-
-    void ProcessCsi(byte b)
-    {
-        if (TryAccumulateParam(b))
-        {
-            state = State.CsiParam;
-            return;
-        }
-
-        if (b >= 0x40 && b <= 0x7E)
-        {
-            // Final byte - execute command
-            PushParam();
-            ExecuteCsi((char)b);
-        }
-        // Either the sequence just ran or the byte was junk; both end it.
-        state = State.Ground;
-    }
-
-    /// <summary>Consumes everything a CSI sequence can carry ahead of its final byte: the
-    /// digits, the two separators, the private prefix and the intermediate byte.</summary>
-    bool TryAccumulateParam(byte b)
-    {
-        if (b >= '0' && b <= '9')
-        {
-            currentParam = currentParam * 10 + (b - '0');
-            return true;
-        }
-        if (b == ';')
-        {
-            PushParam();
-            pendingColon = false;
-            return true;
-        }
-        if (b == ':')
-        {
-            // Colon sub-parameter: the next param belongs to this param's group.
-            PushParam();
-            pendingColon = true;
-            return true;
-        }
-        if (b >= 0x3C && b <= 0x3F)
-        {
-            // Private parameter prefix: '<' '=' '>' '?'
-            csiPrefix = (char)b;
-            return true;
-        }
-        if (b >= 0x20 && b <= 0x2F)
-        {
-            // Intermediate byte (e.g. '$' in DECRQM's CSI ? Ps $ p).
-            csiIntermediate = (char)b;
-            return true;
-        }
-        return false;
-    }
-
-    void PushParam()
-    {
-        csiParams.Add(currentParam);
-        csiParamIsColon.Add(pendingColon);
-        currentParam = 0;
     }
 
     void ExecuteCsi(char command)
@@ -266,23 +122,24 @@ public class VtParser
         // Private/prefixed CSI ( '<' '=' '>' '?' ) must not fall through to the ANSI
         // cursor/SGR handlers. Kitty-keyboard 'CSI > u' / 'CSI < u' / 'CSI = u' and
         // XTMODKEYS 'CSI > m' would otherwise hijack RCP/SGR and move the cursor.
-        if (csiPrefix != '\0')
+        var csi = tokenizer.Csi;
+        if (csi.Prefix != '\0')
         {
-            ExecutePrivateCsi(command);
+            ExecutePrivateCsi(command, csi);
             return;
         }
 
-        var args = new CsiArgs(csiParams);
-        if (!ScreenCommands.TryExecuteCsi(buffer, command, args, blank))
+        if (!ScreenCommands.TryExecuteCsi(buffer, command, csi.Args, blank))
         {
-            ExecuteAnsiCsi(command, args);
+            ExecuteAnsiCsi(command, csi);
         }
     }
 
     // The CSI commands that need more than the screen: the pen, the reply channel and the
     // saved-cursor registers.
-    void ExecuteAnsiCsi(char command, CsiArgs args)
+    void ExecuteAnsiCsi(char command, CsiSequence csi)
     {
+        var args = csi.Args;
         switch (command)
         {
             case 'S': // SU - Scroll Up
@@ -292,10 +149,10 @@ public class VtParser
                 buffer.Region.ScrollDown(args.Get(0));
                 break;
             case 'm': // SGR - Select Graphic Rendition
-                pen.Apply(csiParams, csiParamIsColon);
+                pen.Apply(csi.Values, csi.IsColon);
                 break;
             case 'c': // DA1 - primary Device Attributes (unprefixed)
-                reports.DeviceAttributes(csiPrefix);
+                reports.DeviceAttributes(csi.Prefix);
                 break;
             case 'n': // DSR - Device Status Report
                 reports.DeviceStatus(args.Get(0, 0), buffer);
@@ -318,33 +175,33 @@ public class VtParser
     // Only the prefix-aware commands act; everything else (notably Kitty-keyboard
     // 'u', XTMODKEYS 'm', DSR 'n', prefixed 's') is ignored so it cannot reach the
     // ANSI cursor/SGR handlers.
-    void ExecutePrivateCsi(char command)
+    void ExecutePrivateCsi(char command, CsiSequence csi)
     {
         switch (command)
         {
             case 'c': // DA2 ('>') / DA3 ('=')
-                reports.DeviceAttributes(csiPrefix);
+                reports.DeviceAttributes(csi.Prefix);
                 break;
             case 'h': // SM - Set Mode (DEC private)
             case 'l': // RM - Reset Mode (DEC private)
-                if (csiPrefix == '?')
+                if (csi.Prefix == '?')
                 {
-                    ExecuteDecMode(command);
+                    ExecuteDecMode(command, csi.Values);
                 }
                 break;
             case 'p': // DECRQM - Request Mode (CSI ? Ps $ p)
-                ReportMode();
+                ReportMode(csi);
                 break;
             case 'q': // XTVERSION - report terminal name/version (CSI > q)
-                reports.Version(csiPrefix, csiIntermediate);
+                reports.Version(csi.Prefix, csi.Intermediate);
                 break;
         }
     }
 
-    void ExecuteDecMode(char command)
+    void ExecuteDecMode(char command, List<int> requested)
     {
         var enabled = command == 'h';
-        foreach (var mode in csiParams)
+        foreach (var mode in requested)
         {
             if (!modes.TrySet(mode, enabled) && mode == 1049)
             {
@@ -376,33 +233,14 @@ public class VtParser
     }
 
     /// <summary>DECRQM (CSI ? Ps $ p): answer with how DecModes currently reports the mode.</summary>
-    void ReportMode()
+    void ReportMode(CsiSequence csi)
     {
-        if (csiPrefix != '?' || csiIntermediate != '$')
+        if (csi.Prefix != '?' || csi.Intermediate != '$')
         {
             return;
         }
 
-        var mode = csiParams.Count > 0 ? csiParams[0] : 0;
+        var mode = csi.Values.Count > 0 ? csi.Values[0] : 0;
         reports.ModeSetting(mode, modes.Report(mode, IsAlternateScreen));
-    }
-
-    void ProcessOsc(byte b)
-    {
-        if (b == 0x07)
-        {
-            // BEL terminates OSC
-            osc.Dispatch(CollectionsMarshal.AsSpan(oscBuffer), buffer);
-            state = State.Ground;
-        }
-        else if (b == 0x1B)
-        {
-            // Could be start of ST (\x1b\\)
-            state = State.OscEscape;
-        }
-        else
-        {
-            oscBuffer.Add(b);
-        }
     }
 }
