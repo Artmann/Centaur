@@ -53,7 +53,7 @@ static class TerminalTestHelpers
     public static List<string> CaptureResponses(VtParser parser)
     {
         var responses = new List<string>();
-        parser.Respond += bytes => responses.Add(Encoding.Latin1.GetString(bytes));
+        parser.Reports.Respond += bytes => responses.Add(Encoding.Latin1.GetString(bytes));
         return responses;
     }
 }

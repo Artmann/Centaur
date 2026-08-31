@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace Centaur.Core.Terminal;
@@ -25,30 +24,12 @@ public class VtParser
     public bool IsAlternateScreen { get; private set; }
     public ScreenBuffer ActiveBuffer => buffer;
 
-    // Response channel back to the PTY for queries (DA, DECRQM, OSC color/clipboard
-    // reads). Subscribers receive the raw bytes to write to the pty's input.
-    public event Action<byte[]>? Respond;
+    // The DA/DSR/DECRQM/XTVERSION replies, and the channel they go out on.
+    readonly DeviceReports reports = new();
 
-    void Reply(string s) => Respond?.Invoke(System.Text.Encoding.Latin1.GetBytes(s));
-
-    // Version reported by XTVERSION. Resolved once from the assembly's build version
-    // (set in Directory.Build.props) so it tracks releases instead of a hardcoded literal.
-    public static string TerminalVersion { get; } = ResolveVersion();
-
-    static string ResolveVersion()
-    {
-        var info = typeof(VtParser)
-            .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion;
-        if (!string.IsNullOrEmpty(info))
-        {
-            // Strip any "+<gitsha>" build metadata SourceLink may have appended.
-            var plus = info.IndexOf('+', StringComparison.Ordinal);
-            return plus >= 0 ? info[..plus] : info;
-        }
-        var version = typeof(VtParser).Assembly.GetName().Version;
-        return version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "0.0.0";
-    }
+    /// <summary>What the terminal reports about itself, and the raw response channel back to
+    /// the pty that those replies - and OSC colour/clipboard reads - are written to.</summary>
+    public DeviceReports Reports => reports;
 
     /// <summary>State the OSC sequences carry - window title, working directory, the palette
     /// and default colours, the last exit code - and the OSC 52 clipboard event.</summary>
@@ -143,7 +124,7 @@ public class VtParser
         this.buffer = buffer;
         pen = new SgrPen(theme);
         blank = new Cell(' ', theme.Foreground, theme.Background);
-        osc = new OscHandler(theme, pen, Reply);
+        osc = new OscHandler(theme, pen, reports.Reply);
     }
 
     public void Resize(int columns, int rows)
@@ -352,10 +333,10 @@ public class VtParser
                 pen.Apply(csiParams, csiParamIsColon);
                 break;
             case 'c': // DA1 - primary Device Attributes (unprefixed)
-                HandleDeviceAttributes();
+                reports.DeviceAttributes(csiPrefix);
                 break;
             case 'n': // DSR - Device Status Report
-                HandleDeviceStatus();
+                reports.DeviceStatus(args.Get(0, 0), buffer);
                 break;
             case 's': // SCP - Save Cursor Position (ANSI)
                 SaveCursor();
@@ -380,7 +361,7 @@ public class VtParser
         switch (command)
         {
             case 'c': // DA2 ('>') / DA3 ('=')
-                HandleDeviceAttributes();
+                reports.DeviceAttributes(csiPrefix);
                 break;
             case 'h': // SM - Set Mode (DEC private)
             case 'l': // RM - Reset Mode (DEC private)
@@ -390,19 +371,11 @@ public class VtParser
                 }
                 break;
             case 'p': // DECRQM - Request Mode (CSI ? Ps $ p)
-                HandleDecrqm();
+                ReportMode();
                 break;
             case 'q': // XTVERSION - report terminal name/version (CSI > q)
-                HandleXtversion();
+                reports.Version(csiPrefix, csiIntermediate);
                 break;
-        }
-    }
-
-    void HandleXtversion()
-    {
-        if (csiPrefix == '>' && csiIntermediate == '\0')
-        {
-            Reply($"\x1bP>|Centaur({TerminalVersion})\x1b\\");
         }
     }
 
@@ -440,37 +413,8 @@ public class VtParser
         IsAlternateScreen = enabled;
     }
 
-    void HandleDeviceAttributes()
-    {
-        switch (csiPrefix)
-        {
-            case '>': // DA2 - secondary: device type 1, firmware 0, rom 0
-                Reply("\x1b[>1;0;0c");
-                break;
-            case '=': // DA3 - tertiary: unit id, as DCS ! | <hex> ST
-                Reply("\x1bP!|00000000\x1b\\");
-                break;
-            default: // DA1 - primary: VT220 (62) + ansi color (22)
-                Reply("\x1b[?62;22c");
-                break;
-        }
-    }
-
-    void HandleDeviceStatus()
-    {
-        var request = csiParams.Count > 0 ? csiParams[0] : 0;
-        switch (request)
-        {
-            case 5: // Report device status: terminal is functioning correctly.
-                Reply("\x1b[0n");
-                break;
-            case 6: // CPR - report cursor position as 1-based row;col.
-                Reply($"\x1b[{buffer.cursorY + 1};{buffer.cursorX + 1}R");
-                break;
-        }
-    }
-
-    void HandleDecrqm()
+    /// <summary>DECRQM (CSI ? Ps $ p): answer with how DecModes currently reports the mode.</summary>
+    void ReportMode()
     {
         if (csiPrefix != '?' || csiIntermediate != '$')
         {
@@ -478,7 +422,7 @@ public class VtParser
         }
 
         var mode = csiParams.Count > 0 ? csiParams[0] : 0;
-        Reply($"[?{mode};{modes.Report(mode, IsAlternateScreen)}$y");
+        reports.ModeSetting(mode, modes.Report(mode, IsAlternateScreen));
     }
 
     void ProcessOsc(byte b)

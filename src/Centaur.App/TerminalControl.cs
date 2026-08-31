@@ -84,7 +84,7 @@ public class TerminalControl : Control, IPaneTerminal
         );
         shell.Exited += () => PtyExited?.Invoke();
         shell.WorkingDirectoryChanged += () => WorkingDirectoryChanged?.Invoke();
-        parser.Respond += shell.Respond;
+        parser.Reports.Respond += shell.Respond;
 
         suggestions = new InlineSuggestions(
             services.Suggestions,

@@ -17,7 +17,7 @@ public class VtParserXtversionTests
     // The reported version is tied to the assembly build version (set in
     // Directory.Build.props) rather than a hardcoded literal, so it can't drift.
     // Derive the same value here instead of duplicating the version number.
-    static readonly string expectedReply = $"\x1bP>|Centaur({VtParser.TerminalVersion})\x1b\\";
+    static readonly string expectedReply = $"\x1bP>|Centaur({DeviceReports.TerminalVersion})\x1b\\";
 
     public VtParserXtversionTests()
     {

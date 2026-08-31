@@ -54,7 +54,7 @@ sealed class TerminalSession : IAsyncDisposable
 
         // Answer capability probes (Device Attributes, DECRQM, OSC color/clipboard) so the
         // shell doesn't stall on startup timeouts — mirrors TerminalControl.RespondToPty.
-        parser.Respond += session.RespondToPty;
+        parser.Reports.Respond += session.RespondToPty;
 
         return session;
     }
