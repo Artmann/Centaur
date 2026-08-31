@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="src/Centaur.App/Assets/centaur.png" alt="Centaur" width="128" height="128" />
+
 # Centaur
 
 ### A fast, GPU-accelerated terminal emulator for Windows
