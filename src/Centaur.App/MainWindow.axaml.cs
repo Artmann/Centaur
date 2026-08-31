@@ -10,8 +10,9 @@ namespace Centaur.App;
 public partial class MainWindow : Window
 {
     const int horizontalPadding = 8;
+    const int topPadding = 4;
     const int bottomPadding = 8;
-    const int titleBarHeight = 28;
+    const int titleBarHeight = 36;
 
     readonly ExtensionHost host;
     readonly TabManager tabManager;
@@ -155,7 +156,7 @@ public partial class MainWindow : Window
         titleBarPanel.Margin = new Thickness(offScreen.Left, offScreen.Top, offScreen.Right, 0);
         contentPanel.Margin = new Thickness(
             horizontalPadding + offScreen.Left,
-            top + offScreen.Top,
+            top + topPadding + offScreen.Top,
             horizontalPadding + offScreen.Right,
             bottomPadding + offScreen.Bottom
         );
