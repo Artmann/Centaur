@@ -7,7 +7,7 @@ namespace Centaur.App.Menus;
 /// opened on.
 ///
 /// Built from delegates rather than from the pane itself, so a provider gets exactly these
-/// seven capabilities and no way to reach the rest of the control. The state getters are
+/// eight capabilities and no way to reach the rest of the control. The state getters are
 /// called when the menu opens, not when this is constructed.
 /// </summary>
 public sealed class TerminalMenuContext : ITerminalContextMenuContext
@@ -17,6 +17,7 @@ public sealed class TerminalMenuContext : ITerminalContextMenuContext
     public required Action ToggleReadOnlyRequested { get; init; }
     public required Action CopyRequested { get; init; }
     public required Action PasteRequested { get; init; }
+    public required Action PasteImageAsFileRequested { get; init; }
     public required Action<SplitDirection> SplitRequested { get; init; }
     public required Action CloseRequested { get; init; }
 
@@ -29,6 +30,8 @@ public sealed class TerminalMenuContext : ITerminalContextMenuContext
     void ITerminalContextMenuContext.Copy() => CopyRequested();
 
     void ITerminalContextMenuContext.Paste() => PasteRequested();
+
+    void ITerminalContextMenuContext.PasteImageAsFile() => PasteImageAsFileRequested();
 
     void ITerminalContextMenuContext.Split(SplitDirection direction) => SplitRequested(direction);
 
