@@ -2,11 +2,11 @@ namespace Centaur.Core.Terminal;
 
 public class ScrollbackBuffer
 {
-    readonly Cell[][] ring;
+    Cell[][] ring;
     int head;
 
     public int Count { get; private set; }
-    public int Capacity { get; }
+    public int Capacity { get; private set; }
 
     /// <summary>How many rows above the live grid the view is currently parked, 0 meaning
     /// "at the live edge". Lives here rather than on the screen buffer because it is only
@@ -49,6 +49,48 @@ public class ScrollbackBuffer
         // index 0 = oldest, Count-1 = newest
         var ringIndex = (head - Count + index + Capacity) % Capacity;
         return ring[ringIndex];
+    }
+
+    /// <summary>
+    /// Rewrites every stored line through <paramref name="map"/>, so history recolours with the
+    /// live grid when the theme changes.
+    /// </summary>
+    public void Recolor(Func<Cell, Cell> map)
+    {
+        for (var i = 0; i < Count; i++)
+        {
+            var line = GetLine(i);
+            for (var x = 0; x < line.Length; x++)
+            {
+                line[x] = map(line[x]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Changes how much history is kept, keeping the newest lines and dropping the oldest when
+    /// the buffer shrinks. A disabled buffer (the alternate screen, render snapshots) stays
+    /// disabled - its capacity is a structural choice, not a user setting.
+    /// </summary>
+    public void Resize(int capacity)
+    {
+        if (IsDisabled || capacity <= 0 || capacity == Capacity)
+        {
+            return;
+        }
+
+        var kept = Math.Min(Count, capacity);
+        var resized = new Cell[capacity][];
+        for (var i = 0; i < kept; i++)
+        {
+            resized[i] = GetLine(Count - kept + i);
+        }
+
+        ring = resized;
+        Capacity = capacity;
+        Count = kept;
+        head = kept % capacity;
+        Offset = Math.Min(Offset, Count);
     }
 
     public void ScrollUp(int lines)

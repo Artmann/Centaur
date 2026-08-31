@@ -14,7 +14,7 @@ public sealed class CellGrid
     public int Rows { get; private set; }
 
     /// <summary>The cell an untouched position holds, and what clearing fills with.</summary>
-    public Cell Blank { get; }
+    public Cell Blank { get; private set; }
 
     public CellGrid(int columns, int rows, Cell blank)
     {
@@ -89,6 +89,20 @@ public sealed class CellGrid
         cells = resized;
         Columns = newColumns;
         Rows = newRows;
+    }
+
+    /// <summary>
+    /// Rewrites every cell through <paramref name="map"/> and adopts a new blank. Used when the
+    /// theme changes: cells store resolved colours rather than palette indices, so text already
+    /// on the grid has to be recoloured or it keeps the old theme until it scrolls away.
+    /// </summary>
+    public void Recolor(Func<Cell, Cell> map, Cell newBlank)
+    {
+        Blank = newBlank;
+        for (var i = 0; i < cells.Length; i++)
+        {
+            cells[i] = map(cells[i]);
+        }
     }
 
     bool Contains(int x, int y) => x >= 0 && x < Columns && y >= 0 && y < Rows;

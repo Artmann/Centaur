@@ -72,11 +72,15 @@ public sealed class ShellChannel
         }
         started = true;
 
+        // Read once, so the pane keeps talking to the shell it was started with even if the
+        // setting changes underneath it. A changed shell reaches the next pane, not this one.
+        var command = ResolveShellCommand();
+
         try
         {
             WorkingDirectory = ResolveStartingDirectory();
             var options = new PtyOptions(
-                executable: "powershell.exe",
+                executable: command,
                 columns: columns,
                 rows: rows,
                 workingDirectory: WorkingDirectory
@@ -90,7 +94,12 @@ public sealed class ShellChannel
         }
         catch (Exception ex)
         {
-            notifications.Show("PTY Error", ex.Message, NotificationSeverity.Error);
+            notifications.Show(
+                "Shell",
+                $"Could not start '{command}': {ex.Message.TrimEnd('.', ' ')}. "
+                    + "Change it in Settings → General → Shell.",
+                NotificationSeverity.Error
+            );
         }
     }
 
@@ -182,6 +191,13 @@ public sealed class ShellChannel
         WorkingDirectory = target;
         WorkingDirectoryChanged?.Invoke();
     }
+
+    /// <summary>The configured shell, falling back to the default when the setting has been
+    /// emptied - an empty command line would fail to spawn with a less obvious message.</summary>
+    string ResolveShellCommand() =>
+        string.IsNullOrWhiteSpace(settings.ShellCommand)
+            ? Settings.DefaultShellCommand
+            : settings.ShellCommand;
 
     string? ResolveStartingDirectory()
     {

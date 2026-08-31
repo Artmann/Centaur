@@ -66,6 +66,13 @@ public class TabManager
         TabsChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Puts the keyboard back into the focused pane of the active tab, for whatever took it away
+    /// - the settings page, which covers the panes while it is open.
+    /// </summary>
+    public void FocusActivePane() =>
+        tabs.Find(t => t.Id == activeTabId)?.Panes.FocusedLeaf.Terminal.Focus();
+
     public void CloseTab(int id)
     {
         var index = tabs.FindIndex(t => t.Id == id);

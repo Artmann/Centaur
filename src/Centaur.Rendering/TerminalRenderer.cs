@@ -11,7 +11,10 @@ public class TerminalRenderer : IDisposable
     readonly SKPaint backgroundPaint;
     readonly SKPaint cursorPaint;
     readonly SKPaint readOnlyStrokePaint;
+    readonly SKPaint bellFlashPaint;
     readonly TerminalTheme theme;
+    readonly TerminalAppearance appearance;
+    readonly SKColor clearColor;
     readonly RenderProfiler? profiler;
     readonly GlyphPainter glyphs;
     readonly CellDecorationPainter decorations;
@@ -26,17 +29,28 @@ public class TerminalRenderer : IDisposable
     /// </summary>
     public bool HasBlinkingCells { get; private set; }
 
+    /// <summary>True when the cursor itself blinks, which needs the same wall-clock heartbeat
+    /// that SGR 5/6 cells do even on a terminal producing no output.</summary>
+    public bool CursorBlinks => appearance.CursorBlink;
+
     public TerminalRenderer(
         TerminalTheme theme,
-        float fontSize = 14f,
+        TerminalAppearance? appearance = null,
         RenderProfiler? profiler = null
     )
     {
         this.theme = theme;
+        this.appearance = appearance ?? TerminalAppearance.Default;
         this.profiler = profiler;
+
+        var fontSize = this.appearance.FontSize;
         typeface = LoadEmbeddedFont() ?? SKTypeface.Default;
         font = new SKFont(typeface, fontSize);
         font.Subpixel = true;
+
+        clearColor = new SKColor(theme.Background).WithAlpha(
+            (byte)Math.Clamp(this.appearance.BackgroundOpacity * 255f, 0f, 255f)
+        );
 
         backgroundPaint = new SKPaint { Color = new SKColor(theme.Background) };
 
@@ -49,8 +63,12 @@ public class TerminalRenderer : IDisposable
             IsAntialias = true,
         };
 
+        // A wash of the text colour over the whole grid: visible on any theme, and gone again
+        // before the next blink half-cycle, so it reads as a flash rather than a repaint.
+        bellFlashPaint = new SKPaint { Color = new SKColor(theme.Foreground).WithAlpha(56) };
+
         cellWidth = font.MeasureText("M");
-        cellHeight = fontSize * 1.2f;
+        cellHeight = fontSize * this.appearance.LineHeight;
         var textYOffset = cellHeight - (cellHeight - font.Size) / 2;
 
         glyphs = new GlyphPainter(font, cellWidth, cellHeight, textYOffset);
@@ -68,12 +86,13 @@ public class TerminalRenderer : IDisposable
         IReadOnlyList<IRenderOverlay>? overlays = null,
         bool cursorVisible = true,
         bool readOnly = false,
-        bool blinkVisible = true
+        bool blinkVisible = true,
+        bool bellFlash = false
     )
     {
         var clock = FrameClock.Start(profiler?.Enabled == true);
 
-        canvas.Clear(new SKColor(theme.Background));
+        canvas.Clear(clearColor);
         clock.Mark();
 
         DrawBackgroundRuns(canvas, buffer, selection);
@@ -92,14 +111,9 @@ public class TerminalRenderer : IDisposable
         }
         clock.Mark();
 
-        if (cursorVisible)
-        {
-            DrawCursor(canvas, buffer);
-        }
-        if (readOnly)
-        {
-            DrawReadOnlyBadge(canvas, canvasWidth);
-        }
+        // A steady cursor ignores the blink phase entirely; only a blinking one goes dark on it.
+        var cursor = cursorVisible && (blinkVisible || !appearance.CursorBlink);
+        DrawChrome(canvas, buffer, canvasWidth, new PaneMarks(cursor, readOnly, bellFlash));
         clock.Mark();
 
         DrawOverlays(canvas, canvasWidth, overlays);
@@ -147,6 +161,30 @@ public class TerminalRenderer : IDisposable
         }
     }
 
+    /// <summary>Which of the pane's own marks a frame draws over the text.</summary>
+    readonly record struct PaneMarks(bool Cursor, bool ReadOnly, bool BellFlash);
+
+    /// <summary>The marks that belong to the pane rather than to its text: the cursor, the
+    /// read-only badge, and the visual bell.</summary>
+    void DrawChrome(SKCanvas canvas, ScreenBuffer buffer, float canvasWidth, PaneMarks marks)
+    {
+        if (marks.Cursor)
+        {
+            DrawCursor(canvas, buffer);
+        }
+
+        if (marks.ReadOnly)
+        {
+            DrawReadOnlyBadge(canvas, canvasWidth);
+        }
+
+        // Last, and over everything, because the visual bell is a wash across the whole pane.
+        if (marks.BellFlash)
+        {
+            canvas.DrawRect(0, 0, canvasWidth, buffer.rows * cellHeight, bellFlashPaint);
+        }
+    }
+
     void DrawCursor(SKCanvas canvas, ScreenBuffer buffer)
     {
         var column = buffer.cursorX;
@@ -157,7 +195,24 @@ public class TerminalRenderer : IDisposable
         }
 
         cursorPaint.Color = new SKColor(theme.Cursor);
-        canvas.DrawRect(column * cellWidth, row * cellHeight, cellWidth, cellHeight, cursorPaint);
+
+        var x = column * cellWidth;
+        var y = row * cellHeight;
+
+        // A block covers the cell and the character is redrawn on top of it inverted. The thin
+        // styles sit beside the character instead, so it stays in its own colour.
+        switch (appearance.CursorStyle)
+        {
+            case CursorStyle.Underline:
+                var thickness = Math.Max(1f, cellHeight * 0.1f);
+                canvas.DrawRect(x, y + cellHeight - thickness, cellWidth, thickness, cursorPaint);
+                return;
+            case CursorStyle.Bar:
+                canvas.DrawRect(x, y, Math.Max(1f, cellWidth * 0.15f), cellHeight, cursorPaint);
+                return;
+        }
+
+        canvas.DrawRect(x, y, cellWidth, cellHeight, cursorPaint);
 
         // Re-draw the character under the cursor inverted, so it stays readable.
         var cell = buffer[column, row];
@@ -203,6 +258,7 @@ public class TerminalRenderer : IDisposable
         backgroundPaint.Dispose();
         cursorPaint.Dispose();
         readOnlyStrokePaint.Dispose();
+        bellFlashPaint.Dispose();
         font.Dispose();
         typeface.Dispose();
     }

@@ -8,77 +8,74 @@ using Centaur.Core.Terminal;
 namespace Centaur.App;
 
 /// <summary>
-/// The "Starting Directory" section of the settings overlay: one row per
-/// <see cref="StartDirectoryMode"/> plus the path box the specific-folder mode needs.
+/// The starting-directory editor: one row per <see cref="StartDirectoryMode"/> plus the path box
+/// the specific-folder mode needs.
 ///
-/// Writes straight through to <see cref="Settings"/> on every change, so there is no
-/// apply or cancel step for the overlay above to coordinate.
+/// The only setting with an editor of its own - three modes where one of them carries a value is
+/// more than a pill row can say. It writes straight through on every change, like the rest of the
+/// page, so there is no apply or cancel step for the page above to coordinate.
 /// </summary>
-sealed class StartDirectorySection
+sealed class StartDirectoryEditor
 {
     readonly Settings settings;
-    readonly Border[] optionRows = new Border[3];
+    readonly OverlayTheme colors;
+    readonly Border[] optionRows;
     readonly TextBox folderTextBox;
     readonly TextBlock validationText;
     readonly Panel folderInputPanel;
     readonly StackPanel panel;
 
-    OverlayTheme? colors;
-
-    public StartDirectorySection(Settings settings)
+    public StartDirectoryEditor(SettingsContext context)
     {
-        this.settings = settings;
+        settings = context.Settings;
+        colors = context.Colors;
 
         folderTextBox = OverlayControls.CreateTextBox(new Thickness(0, 0, 0, 1));
+        folderTextBox.Text = settings.SpecificFolder;
         folderTextBox.TextChanged += OnFolderTextChanged;
+        colors.StyleTextBox(folderTextBox);
 
         validationText = OverlayControls.CreateLabel("", 11);
+        validationText.Foreground = colors.Error;
         validationText.IsVisible = false;
         validationText.Margin = new Thickness(0, 4, 0, 0);
 
         folderInputPanel = CreateFolderInput();
-
-        optionRows[0] = CreateOptionRow(
-            "Last used folder",
-            "Restores the directory from your previous session",
-            StartDirectoryMode.LastFolder
-        );
-        optionRows[1] = CreateOptionRow(
-            "Home folder",
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            StartDirectoryMode.HomeFolder
-        );
-        optionRows[2] = CreateOptionRow(
-            "Specific folder",
-            "Always start in a chosen directory",
-            StartDirectoryMode.SpecificFolder
-        );
+        optionRows = CreateOptionRows();
 
         panel = new StackPanel { Spacing = 2 };
         foreach (var row in optionRows)
         {
             panel.Children.Add(row);
         }
+
         panel.Children.Add(folderInputPanel);
+
+        UpdateSelectionVisual();
+        ValidateFolderPath();
     }
 
     public Control View => panel;
 
-    public void ApplyTheme(OverlayTheme theme)
-    {
-        colors = theme;
-        validationText.Foreground = theme.Error;
-        theme.StyleTextBox(folderTextBox);
-        UpdateSelectionVisual();
-    }
-
-    /// <summary>Re-reads the settings, for when the overlay is opened.</summary>
-    public void Refresh()
-    {
-        folderTextBox.Text = settings.SpecificFolder;
-        UpdateSelectionVisual();
-        ValidateFolderPath();
-    }
+    /// <summary>One row per <see cref="StartDirectoryMode"/>, in the order they are offered.</summary>
+    Border[] CreateOptionRows() =>
+        [
+            CreateOptionRow(
+                "Last used folder",
+                "Restores the directory from your previous session",
+                StartDirectoryMode.LastFolder
+            ),
+            CreateOptionRow(
+                "Home folder",
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                StartDirectoryMode.HomeFolder
+            ),
+            CreateOptionRow(
+                "Specific folder",
+                "Always start in a chosen directory",
+                StartDirectoryMode.SpecificFolder
+            ),
+        ];
 
     // The path box and its validation message, shown only for the specific-folder mode.
     Panel CreateFolderInput()
@@ -94,7 +91,7 @@ sealed class StartDirectorySection
 
     Border CreateOptionRow(string label, string description, StartDirectoryMode mode)
     {
-        var labelText = OverlayControls.CreateLabel(label, 14);
+        var labelText = OverlayControls.CreateLabel(label, 13);
 
         var descText = OverlayControls.CreateLabel(description, 11);
         descText.Opacity = 0.6;
@@ -106,14 +103,19 @@ sealed class StartDirectorySection
 
         var border = new Border
         {
-            Padding = new Thickness(16, 10),
+            Padding = new Thickness(12, 10),
             BorderThickness = new Thickness(3, 0, 0, 0),
+            CornerRadius = new CornerRadius(0, 4, 4, 0),
             Cursor = new Cursor(StandardCursorType.Hand),
             Child = stack,
             Tag = mode,
         };
 
-        border.PointerPressed += (_, _) => SelectOption(mode);
+        border.PointerPressed += (_, e) =>
+        {
+            e.Handled = true;
+            SelectOption(mode);
+        };
 
         return border;
     }
@@ -121,11 +123,14 @@ sealed class StartDirectorySection
     void SelectOption(StartDirectoryMode mode)
     {
         settings.StartDirectory = mode;
-        settings.Save();
+        settings.Save(SettingIds.StartDirectory);
         UpdateSelectionVisual();
+        ValidateFolderPath();
 
         if (mode == StartDirectoryMode.SpecificFolder)
         {
+            // The box has only just been made visible; focusing it synchronously does not
+            // stick, so the focus waits for the layout pass that reveals it.
             Dispatcher.UIThread.Post(() => folderTextBox.Focus(), DispatcherPriority.Input);
         }
     }
@@ -143,15 +148,15 @@ sealed class StartDirectorySection
     /// <summary>Applies the selected or unselected look to one option row in place.</summary>
     void PaintRow(Border row, bool isSelected)
     {
-        row.Background = isSelected ? colors?.Selection : Brushes.Transparent;
-        row.BorderBrush = isSelected ? colors?.Accent : Brushes.Transparent;
+        row.Background = isSelected ? colors.Selection : Brushes.Transparent;
+        row.BorderBrush = isSelected ? colors.Accent : Brushes.Transparent;
 
         if (row.Child is not StackPanel stack)
         {
             return;
         }
 
-        var brush = isSelected ? colors?.Foreground : colors?.Dim;
+        var brush = isSelected ? colors.Foreground : colors.Dim;
         if (stack.Children[0] is TextBlock label)
         {
             label.Foreground = brush;
@@ -167,7 +172,7 @@ sealed class StartDirectorySection
     void OnFolderTextChanged(object? sender, TextChangedEventArgs e)
     {
         settings.SpecificFolder = folderTextBox.Text ?? "";
-        settings.Save();
+        settings.Save(SettingIds.StartDirectory);
         ValidateFolderPath();
     }
 

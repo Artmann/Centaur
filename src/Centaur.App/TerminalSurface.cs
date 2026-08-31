@@ -19,19 +19,56 @@ public sealed class TerminalSurface
     readonly object bufferLock = new();
     readonly VtParser parser;
 
-    // Only for cell metrics - turning a pixel position into a grid cell.
-    readonly TerminalRenderer renderer;
+    // Only for cell metrics - turning a pixel position into a grid cell. Swapped rather than
+    // mutated when the appearance changes, because the metrics are captured at construction.
+    TerminalRenderer renderer;
 
     // Moving the viewport changes what is on screen, so the surface asks for the redraw
     // itself rather than making every caller remember to.
     readonly Action markDirty;
 
-    public TerminalSurface(TerminalTheme theme, TerminalRenderer renderer, Action markDirty)
+    public TerminalSurface(
+        TerminalTheme theme,
+        TerminalRenderer renderer,
+        Action markDirty,
+        int scrollbackLines = ScreenBuffer.DefaultScrollbackLines
+    )
     {
         // Start at a default size; the control resizes once it knows its bounds.
-        parser = new VtParser(new ScreenBuffer(80, 24, theme), theme);
+        parser = new VtParser(
+            new ScreenBuffer(80, 24, theme, scrollbackLines: scrollbackLines),
+            theme
+        );
         this.renderer = renderer;
         this.markDirty = markDirty;
+    }
+
+    /// <summary>Adopts the renderer a pane rebuilt for a new appearance, so pixel-to-cell
+    /// conversion uses the new metrics from the next pointer event on.</summary>
+    public void UseRenderer(TerminalRenderer replacement) => renderer = replacement;
+
+    /// <summary>Swaps the theme under a running pane, recolouring what is already on both
+    /// screens and in the scrollback. Takes the lock, because it rewrites the grid.</summary>
+    public void SetTheme(TerminalTheme theme)
+    {
+        lock (bufferLock)
+        {
+            parser.ApplyTheme(theme);
+        }
+
+        markDirty();
+    }
+
+    /// <summary>Changes how many scrolled-off rows the main screen keeps, dropping the oldest
+    /// when the limit shrinks.</summary>
+    public void SetScrollbackLines(int lines)
+    {
+        lock (bufferLock)
+        {
+            parser.SetScrollbackLines(lines);
+        }
+
+        markDirty();
     }
 
     /// <summary>The parser behind the surface. Reading a buffer through it means holding

@@ -24,16 +24,60 @@ public sealed class TerminalServices
     public required RenderProfiler Profiler { get; init; }
     public required FpsOverlayExtension FpsOverlay { get; init; }
 
-    /// <summary>The theme every pane renders with, falling back to the built-in one when no
-    /// provider is registered (tests, or an extension that failed to activate). Resolved on
-    /// first use, because the theme provider is registered while the host activates.</summary>
-    public TerminalTheme Theme =>
-        theme ??=
-            Host.GetProvider<IThemeProvider>()
-                ?.GetThemes()
-                .FirstOrDefault(t => t.Id == "catppuccin-macchiato")
-                ?.Theme
-            ?? CatppuccinThemes.Macchiato;
+    /// <summary>The theme every pane renders with, taken from <see cref="Settings.ThemeId"/>.
+    /// Resolved on first use, because the theme provider is registered while the host
+    /// activates.</summary>
+    public TerminalTheme Theme => theme ??= Resolve();
+
+    /// <summary>Every theme on offer, for the settings page's picker. Empty when no provider is
+    /// registered, which is the case in tests.</summary>
+    public IReadOnlyList<ThemeInfo> Themes => Host.GetProvider<IThemeProvider>()?.GetThemes() ?? [];
+
+    /// <summary>
+    /// Starts following <see cref="Settings.ThemeId"/>. Called once, at startup, so that this
+    /// subscription runs before any window's or pane's - by the time they handle the same
+    /// change, <see cref="Theme"/> already answers with the new theme.
+    /// </summary>
+    public void WatchSettings()
+    {
+        Settings.Changed += id =>
+        {
+            if (id is SettingIds.Theme or "")
+            {
+                theme = null;
+            }
+        };
+    }
+
+    /// <summary>
+    /// Falls back to the built-in theme when the id names something no provider offers - a
+    /// hand-edited settings file, or an extension that used to supply it and no longer does.
+    /// The user is told, because otherwise the app silently ignores what their file says.
+    /// </summary>
+    TerminalTheme Resolve()
+    {
+        var themes = Themes;
+        if (themes.Count == 0)
+        {
+            return CatppuccinThemes.Macchiato;
+        }
+
+        var match = themes.FirstOrDefault(t => t.Id == Settings.ThemeId);
+        if (match != null)
+        {
+            return match.Theme;
+        }
+
+        Notifications.Show(
+            "Unknown theme",
+            $"No theme is registered as \"{Settings.ThemeId}\". Using the default instead; "
+                + "pick one in Settings → Appearance → Theme.",
+            NotificationSeverity.Warning
+        );
+
+        return themes.FirstOrDefault(t => t.Id == Settings.DefaultThemeId)?.Theme
+            ?? themes[0].Theme;
+    }
 
     TerminalTheme? theme;
 }

@@ -13,7 +13,8 @@ static class ScreenCommands
     {
         switch (b)
         {
-            case 0x07: // BEL - bell, ignore
+            // BEL leaves the screen alone; the parser raises VtParser.Bell for it.
+            case 0x07:
                 return true;
             case 0x08: // BS - backspace
                 buffer.cursorX = Math.Max(0, buffer.cursorX - 1);

@@ -22,6 +22,7 @@ sealed class TerminalDrawOperation : ICustomDrawOperation
     readonly bool cursorVisible;
     readonly bool readOnly;
     readonly bool blinkVisible;
+    readonly bool bellFlash;
 
     public TerminalDrawOperation(
         Rect bounds,
@@ -31,7 +32,8 @@ sealed class TerminalDrawOperation : ICustomDrawOperation
         IReadOnlyList<IRenderOverlay> overlays,
         bool cursorVisible = true,
         bool readOnly = false,
-        bool blinkVisible = true
+        bool blinkVisible = true,
+        bool bellFlash = false
     )
     {
         this.bounds = bounds;
@@ -42,6 +44,7 @@ sealed class TerminalDrawOperation : ICustomDrawOperation
         this.cursorVisible = cursorVisible;
         this.readOnly = readOnly;
         this.blinkVisible = blinkVisible;
+        this.bellFlash = bellFlash;
     }
 
     public Rect Bounds => bounds;
@@ -71,7 +74,8 @@ sealed class TerminalDrawOperation : ICustomDrawOperation
             overlays,
             cursorVisible,
             readOnly,
-            blinkVisible
+            blinkVisible,
+            bellFlash
         );
     }
 }

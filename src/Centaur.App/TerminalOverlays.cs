@@ -1,26 +1,25 @@
 using Avalonia.Controls;
 using Centaur.Core.Hosting;
-using Centaur.Core.Terminal;
 
 namespace Centaur.App;
 
 /// <summary>
-/// The two full-pane overlays a terminal can put up - reverse search and settings - and the
-/// one fact the terminal needs back from them: whether either is showing, because while one
-/// is, key presses belong to the overlay and not to the shell.
+/// The full-pane overlay a terminal can put up - reverse search - and the one fact the
+/// terminal needs back from it: whether it is showing, because while it is, key presses
+/// belong to the overlay and not to the shell.
 ///
-/// Each overlay is built on first use and then reused, and is parented to the panel holding
-/// the terminal rather than to the terminal itself, so it can cover the whole pane.
+/// The overlay is built on first use and then reused, and is parented to the panel holding
+/// the terminal rather than to the terminal itself, so it can cover the whole pane. Settings
+/// used to live here too; it is a window-level page now, because a pane-level settings
+/// surface meant one overlay per split, each covering half the screen.
 /// </summary>
 public sealed class TerminalOverlays
 {
     readonly Control owner;
     readonly TerminalServices services;
-    readonly TerminalTheme theme;
     readonly Action<string> commandSelected;
 
     ReverseSearchOverlay? reverseSearchOverlay;
-    SettingsOverlay? settingsOverlay;
 
     /// <param name="commandSelected">
     /// Called with the history entry the user picked out of reverse search, after the
@@ -29,13 +28,11 @@ public sealed class TerminalOverlays
     public TerminalOverlays(
         Control owner,
         TerminalServices services,
-        TerminalTheme theme,
         Action<string> commandSelected
     )
     {
         this.owner = owner;
         this.services = services;
-        this.theme = theme;
         this.commandSelected = commandSelected;
     }
 
@@ -63,39 +60,14 @@ public sealed class TerminalOverlays
             Attach(reverseSearchOverlay);
         }
 
-        reverseSearchOverlay.Show(theme, services.CommandHistory.GetAll());
+        // Read now rather than captured at construction, so the overlay follows a theme change.
+        reverseSearchOverlay.Show(services.Theme, services.CommandHistory.GetAll());
         services.Host.Events.Publish(new ReverseSearchRequestedEvent());
-    }
-
-    public void OpenSettings()
-    {
-        if (AnyOpen)
-        {
-            return;
-        }
-
-        AnyOpen = true;
-
-        if (settingsOverlay == null)
-        {
-            settingsOverlay = new SettingsOverlay(services.Settings);
-            settingsOverlay.CloseRequested += CloseSettings;
-            Attach(settingsOverlay);
-        }
-
-        settingsOverlay.Show(theme);
-        services.Host.Events.Publish(new SettingsRequestedEvent());
     }
 
     void CloseReverseSearch()
     {
         reverseSearchOverlay?.Hide();
-        Closed();
-    }
-
-    void CloseSettings()
-    {
-        settingsOverlay?.Hide();
         Closed();
     }
 

@@ -8,7 +8,6 @@
     Height="800"
     MinWidth="480"
     MinHeight="320"
-    Background="#24273A"
     ExtendClientAreaToDecorationsHint="True"
     ExtendClientAreaChromeHints="NoChrome"
     ExtendClientAreaTitleBarHeightHint="36">
@@ -22,18 +21,21 @@
             <!-- Caption buttons -->
             <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
                 <Button x:Name="minimizeButton" Classes="captionButton">
-                    <Path Stroke="#6E738D" StrokeThickness="1" Data="M0,5 L10,5" Width="10" Height="10" />
+                    <Path Stroke="{DynamicResource chromeDim}" StrokeThickness="1" Data="M0,5 L10,5" Width="10" Height="10" />
                 </Button>
                 <Button x:Name="maximizeButton" Classes="captionButton">
-                    <Path Stroke="#6E738D" StrokeThickness="1" Fill="Transparent"
+                    <Path Stroke="{DynamicResource chromeDim}" StrokeThickness="1" Fill="Transparent"
                           Data="M0,0 L10,0 L10,10 L0,10 Z" Width="10" Height="10" />
                 </Button>
                 <Button x:Name="closeButton" Classes="captionButton">
-                    <Path Stroke="#6E738D" StrokeThickness="1" Data="M0,0 L10,10 M10,0 L0,10" Width="10" Height="10" />
+                    <Path Stroke="{DynamicResource chromeDim}" StrokeThickness="1" Data="M0,0 L10,10 M10,0 L0,10" Width="10" Height="10" />
                 </Button>
             </StackPanel>
         </Panel>
         <Panel x:Name="contentPanel" />
+        <!-- The settings page. Declared after contentPanel so the z-order is fixed in
+             markup: tab roots added at runtime can never land on top of an open page. -->
+        <Panel x:Name="settingsHost" />
     </Panel>
 
     <Window.Styles>
@@ -51,34 +53,34 @@
         <!-- Min/Max hover -->
         <Style Selector="Button#minimizeButton:pointerover /template/ ContentPresenter,
                          Button#maximizeButton:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#363A4F" />
+            <Setter Property="Background" Value="{DynamicResource chromeSurface}" />
         </Style>
         <Style Selector="Button#minimizeButton:pointerover Path,
                          Button#maximizeButton:pointerover Path">
-            <Setter Property="Stroke" Value="#CAD3F5" />
+            <Setter Property="Stroke" Value="{DynamicResource chromeForeground}" />
         </Style>
         <!-- Close hover -->
         <Style Selector="Button#closeButton:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#ED8796" />
+            <Setter Property="Background" Value="{DynamicResource chromeDanger}" />
         </Style>
         <Style Selector="Button#closeButton:pointerover Path">
-            <Setter Property="Stroke" Value="#24273A" />
+            <Setter Property="Stroke" Value="{DynamicResource chromeBase}" />
         </Style>
         <!-- Min/Max pressed -->
         <Style Selector="Button#minimizeButton:pressed /template/ ContentPresenter,
                          Button#maximizeButton:pressed /template/ ContentPresenter">
-            <Setter Property="Background" Value="#494D64" />
+            <Setter Property="Background" Value="{DynamicResource chromeBorder}" />
         </Style>
         <!-- Close pressed -->
         <Style Selector="Button#closeButton:pressed /template/ ContentPresenter">
-            <Setter Property="Background" Value="#EE99A8" />
+            <Setter Property="Background" Value="{DynamicResource chromeDangerPressed}" />
         </Style>
 
         <!-- Context menu (Catppuccin Macchiato) -->
         <Style Selector="ContextMenu">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Background" Value="#363A4F" />
-            <Setter Property="BorderBrush" Value="#494D64" />
+            <Setter Property="Background" Value="{DynamicResource chromeSurface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource chromeBorder}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="4" />
             <Setter Property="CornerRadius" Value="6" />
@@ -86,7 +88,7 @@
         <Style Selector="MenuItem">
             <Setter Property="FontSize" Value="12" />
             <Setter Property="MinHeight" Value="0" />
-            <Setter Property="Foreground" Value="#CAD3F5" />
+            <Setter Property="Foreground" Value="{DynamicResource chromeForeground}" />
             <Setter Property="Padding" Value="10,5" />
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="Margin" Value="0,1" />
@@ -96,10 +98,10 @@
             <Setter Property="CornerRadius" Value="4" />
         </Style>
         <Style Selector="MenuItem:pointerover /template/ Border#PART_LayoutRoot">
-            <Setter Property="Background" Value="#494D64" />
+            <Setter Property="Background" Value="{DynamicResource chromeBorder}" />
         </Style>
         <Style Selector="MenuItem:pointerover /template/ ContentPresenter#PART_HeaderPresenter">
-            <Setter Property="TextElement.Foreground" Value="#CAD3F5" />
+            <Setter Property="TextElement.Foreground" Value="{DynamicResource chromeForeground}" />
         </Style>
     </Window.Styles>
 </Window>
