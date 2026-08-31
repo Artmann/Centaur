@@ -69,7 +69,7 @@ public class TerminalControl : Control, IPaneTerminal
             frames.MarkDirty
         );
         input = new TerminalInput(shell, suggestions, host.Events);
-        clipboard = new TerminalClipboard(this, surface, shell, frames.MarkDirty);
+        clipboard = new TerminalClipboard(this, surface, shell, notifications, frames.MarkDirty);
         overlays = new TerminalOverlays(this, services, theme, input.RunCommand);
         shortcuts = BuildShortcuts();
 
@@ -117,6 +117,7 @@ public class TerminalControl : Control, IPaneTerminal
             },
             CopyRequested = clipboard.Copy,
             PasteRequested = clipboard.Paste,
+            PasteImageAsFileRequested = clipboard.PasteImageAsFile,
             SplitRequested = direction => this.SplitRequested?.Invoke(direction),
             CloseRequested = () => this.CloseRequested?.Invoke(),
         };

@@ -15,10 +15,14 @@ public static class PasteEncoder
 
     public static string Encode(string data, bool bracketed)
     {
+        // Terminals expect Enter as CR, not LF, on the input stream. Windows puts CRLF on
+        // the clipboard, and rewriting only the LF would leave CR CR - two Enters, so a
+        // multi-line paste submits every line twice. Collapse the pair first.
+        data = data.Replace("\r\n", "\r", StringComparison.Ordinal).Replace('\n', '\r');
+
         if (!bracketed)
         {
-            // Terminals expect Enter as CR, not LF, on the input stream.
-            return data.Replace('\n', '\r');
+            return data;
         }
 
         var sb = new StringBuilder(data.Length + Start.Length + End.Length);

@@ -20,5 +20,14 @@ public sealed class ClipboardMenuProvider : ITerminalContextMenuProvider
             Group = "clipboard",
             OnInvoke = context.Paste,
         };
+
+        // The escape hatch for the guess Paste makes about who should handle a clipboard
+        // image: this route always writes the picture out and types its path.
+        yield return new TerminalContextMenuItem
+        {
+            Label = "Paste Image as File",
+            Group = "clipboard",
+            OnInvoke = context.PasteImageAsFile,
+        };
     }
 }

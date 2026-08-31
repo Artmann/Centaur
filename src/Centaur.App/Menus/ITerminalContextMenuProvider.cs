@@ -24,6 +24,7 @@ public interface ITerminalContextMenuContext
     void ToggleReadOnly();
     void Copy();
     void Paste();
+    void PasteImageAsFile();
     void Split(SplitDirection direction);
     void Close();
 }

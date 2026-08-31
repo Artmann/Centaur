@@ -56,6 +56,29 @@ public class VtParserBracketedPasteTests
     }
 
     [Fact]
+    public void Encode_Unbracketed_CrLfBecomesOneCarriageReturn()
+    {
+        // Windows puts CRLF on the clipboard. Rewriting only the LF leaves CR CR, which
+        // the shell reads as two Enters and submits the line twice.
+        var result = PasteEncoder.Encode("hello\r\nworld", bracketed: false);
+        Assert.Equal("hello\rworld", result);
+    }
+
+    [Fact]
+    public void Encode_Bracketed_NewlinesBecomeCarriageReturns()
+    {
+        var result = PasteEncoder.Encode("hello\r\nworld\nagain", bracketed: true);
+        Assert.Equal("\x1b[200~hello\rworld\ragain\x1b[201~", result);
+    }
+
+    [Fact]
+    public void Encode_Bracketed_KeepsTabs()
+    {
+        var result = PasteEncoder.Encode("a\tb", bracketed: true);
+        Assert.Equal("\x1b[200~a\tb\x1b[201~", result);
+    }
+
+    [Fact]
     public void IsSafe_PlainText_True()
     {
         Assert.True(PasteEncoder.IsSafe("hello world"));
