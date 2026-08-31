@@ -75,6 +75,26 @@ features are composed via `ExtensionHost`.
 - Keep rendering logic as full redraws (no incremental/dirty-region rendering)
 - Target .NET 9.0
 
+### Commit Messages
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/), because release-please
+derives both the version bump and the changelog from them:
+
+```
+<type>(<optional scope>): <subject>
+
+feat(tabs): give the tab strip room, and a double-click to rename
+fix(vt): save the whole pen across DECSC/DECRC, not just the colours
+```
+
+Keep the prose subject style the repo already uses - the prefix goes in front of it, it doesn't
+replace it. Types in use: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`.
+`feat` bumps the minor, `fix` and `perf` bump the patch, and a `!` after the type or a
+`BREAKING CHANGE:` footer bumps the major.
+
+Nothing in CI checks this. A commit with no recognised prefix is skipped by release-please entirely -
+it neither bumps the version nor shows up in [`CHANGELOG.md`](CHANGELOG.md).
+
 ## Documentation
 
 Everything lives flat in [`docs/`](docs), named `<type>-<identifier>-<slug>.md`:
@@ -91,3 +111,16 @@ Everything lives flat in [`docs/`](docs), named `<type>-<identifier>-<slug>.md`:
 4. Run `dotnet test` to verify
 5. Commit and push your branch
 6. Open a pull request
+
+## Releases
+
+Releases are automated with [release-please](https://github.com/googleapis/release-please) - nothing
+is tagged by hand.
+
+Once conventional commits land on `main`, release-please keeps a `chore(main): release x.y.z` pull
+request open, accumulating them into a changelog entry and bumping `<Version>` in
+`Directory.Build.props` (the line carrying the `x-release-please-version` comment). Merging that pull
+request tags the release, publishes the GitHub Release, and builds and attaches the self-contained
+win-x64 exe.
+
+So: to cut a release, merge the release pull request. To hold one back, leave it open.
