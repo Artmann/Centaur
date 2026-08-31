@@ -8,6 +8,7 @@
 - Run `dotnet csharpier check .` to verify formatting without writing changes
 - **roe** for codebase intelligence: `dotnet roe .` (dead code, duplication, health) - exits non-zero on findings and gates CI
 - Suppress roe false positives in `roe.json`; prefer scoped `deadCode.ignore` over top-level `ignore`
+- `roe.json` raises `health.maxTypeMembers` to 40 for `TerminalControl` (Avalonia overrides) and `VtParser` (sequence dispatch); every other health threshold stays at its default
 - CSharpier is a local dotnet tool — run `dotnet tool restore` after cloning
 
 ## Commit Messages

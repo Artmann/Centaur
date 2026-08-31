@@ -44,6 +44,15 @@ roe exits non-zero on any finding and runs in CI. False positives are suppressed
 repo root - prefer a scoped `deadCode.ignore` entry with a comment in the PR over a top-level `ignore`,
 so the file keeps its duplication and health coverage.
 
+`health.maxTypeMembers` is raised to 40, above roe's default of 20. Two types sit legitimately above
+the default and neither decomposes further without harm: `TerminalControl` is an Avalonia `Control`
+whose ten framework overrides (arrange, attach/detach, the pointer and keyboard handlers, render) have
+to live on the control itself, and `VtParser` is the dispatch table for the VT escape sequences, where
+one method per sequence family is the point. Everything else about them - the buffers, the tokenizer,
+the selection, the clipboard, the key encoding - has been split into collaborators. Raising this one
+threshold keeps every other health check at its default rather than exempting the two files wholesale
+via `health.ignore`, which would also drop their complexity and method-length coverage.
+
 CSharpier and roe are installed as local dotnet tools. Run `dotnet tool restore` after cloning to install them.
 
 ## Architecture
