@@ -31,7 +31,7 @@ public class VtParserOscClipboardTests
     public void Osc52_SetClipboard_FiresWithSelectionAndData()
     {
         ClipboardRequest? captured = null;
-        parser.ClipboardChanged += req => captured = req;
+        parser.Osc.ClipboardChanged += req => captured = req;
 
         // "AAAA" is base64; selection 's' (primary selection).
         parser.Send("\x1b]52;s;AAAA\a");
@@ -45,7 +45,7 @@ public class VtParserOscClipboardTests
     public void Osc52_DefaultSelection_IsClipboard()
     {
         ClipboardRequest? captured = null;
-        parser.ClipboardChanged += req => captured = req;
+        parser.Osc.ClipboardChanged += req => captured = req;
 
         // Empty selection field defaults to 'c'.
         parser.Send("\x1b]52;;AAAA\a");
@@ -59,7 +59,7 @@ public class VtParserOscClipboardTests
     public void Osc52_Clear_FiresWithEmptyData()
     {
         ClipboardRequest? captured = null;
-        parser.ClipboardChanged += req => captured = req;
+        parser.Osc.ClipboardChanged += req => captured = req;
 
         parser.Send("\x1b]52;;\a");
 

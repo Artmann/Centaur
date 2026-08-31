@@ -57,21 +57,21 @@ public class VtParserSemanticPromptTests
     public void Osc133_D_WithExitCodeZero_SetsLastExitCode()
     {
         parser.Send("\x1b]133;D;0\a");
-        Assert.Equal(0, parser.LastExitCode);
+        Assert.Equal(0, parser.Osc.LastExitCode);
     }
 
     [Fact]
     public void Osc133_D_WithNonzeroExitCode_SetsLastExitCode()
     {
         parser.Send("\x1b]133;D;1\a");
-        Assert.Equal(1, parser.LastExitCode);
+        Assert.Equal(1, parser.Osc.LastExitCode);
     }
 
     [Fact]
     public void Osc133_D_WithoutExitCode_LeavesExitCodeNull()
     {
         parser.Send("\x1b]133;D\a");
-        Assert.Null(parser.LastExitCode);
+        Assert.Null(parser.Osc.LastExitCode);
     }
 
     [Fact]

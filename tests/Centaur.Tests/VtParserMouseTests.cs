@@ -115,53 +115,53 @@ public class VtParserMouseTests : VtParserFixture
     [Fact]
     public void MouseTracking_DefaultOff()
     {
-        Assert.Equal(MouseTrackingMode.Off, parser.MouseTracking);
+        Assert.Equal(MouseTrackingMode.Off, parser.Modes.MouseTracking);
     }
 
     [Fact]
     public void MouseTracking_Normal_Mode1000()
     {
         parser.Send("\x1b[?1000h");
-        Assert.Equal(MouseTrackingMode.Normal, parser.MouseTracking);
+        Assert.Equal(MouseTrackingMode.Normal, parser.Modes.MouseTracking);
         parser.Send("\x1b[?1000l");
-        Assert.Equal(MouseTrackingMode.Off, parser.MouseTracking);
+        Assert.Equal(MouseTrackingMode.Off, parser.Modes.MouseTracking);
     }
 
     [Fact]
     public void MouseTracking_ButtonEvent_Mode1002()
     {
         parser.Send("\x1b[?1002h");
-        Assert.Equal(MouseTrackingMode.ButtonEvent, parser.MouseTracking);
+        Assert.Equal(MouseTrackingMode.ButtonEvent, parser.Modes.MouseTracking);
     }
 
     [Fact]
     public void MouseTracking_AnyEvent_Mode1003()
     {
         parser.Send("\x1b[?1003h");
-        Assert.Equal(MouseTrackingMode.AnyEvent, parser.MouseTracking);
+        Assert.Equal(MouseTrackingMode.AnyEvent, parser.Modes.MouseTracking);
     }
 
     [Fact]
     public void MouseSgrMode_Mode1006()
     {
-        Assert.False(parser.MouseSgrMode);
+        Assert.False(parser.Modes.MouseSgrMode);
         parser.Send("\x1b[?1006h");
-        Assert.True(parser.MouseSgrMode);
+        Assert.True(parser.Modes.MouseSgrMode);
         parser.Send("\x1b[?1006l");
-        Assert.False(parser.MouseSgrMode);
+        Assert.False(parser.Modes.MouseSgrMode);
     }
 
     [Fact]
     public void FocusEventMode_Mode1004()
     {
         parser.Send("\x1b[?1004h");
-        Assert.True(parser.FocusEventMode);
+        Assert.True(parser.Modes.FocusEventMode);
     }
 
     [Fact]
     public void AltScrollMode_Mode1007()
     {
         parser.Send("\x1b[?1007h");
-        Assert.True(parser.AltScrollMode);
+        Assert.True(parser.Modes.AltScrollMode);
     }
 }

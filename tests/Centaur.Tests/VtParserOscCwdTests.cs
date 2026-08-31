@@ -27,13 +27,13 @@ public class VtParserOscCwdTests
     public void Osc7_ReportsWorkingDirectory()
     {
         parser.Send("\x1b]7;file:///tmp/example\a");
-        Assert.Equal("file:///tmp/example", parser.WorkingDirectory);
+        Assert.Equal("file:///tmp/example", parser.Osc.WorkingDirectory);
     }
 
     [Fact]
     public void Osc7_Empty_SetsEmptyWorkingDirectory()
     {
         parser.Send("\x1b]7;\a");
-        Assert.Equal("", parser.WorkingDirectory);
+        Assert.Equal("", parser.Osc.WorkingDirectory);
     }
 }

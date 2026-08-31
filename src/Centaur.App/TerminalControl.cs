@@ -568,7 +568,7 @@ public class TerminalControl : Control, IPaneTerminal
         lock (bufferLock)
         {
             snapshot = parser.ActiveBuffer.Snapshot();
-            cursorVis = parser.CursorVisible;
+            cursorVis = parser.Modes.CursorVisible;
         }
         if (profiler.Enabled)
         {

@@ -29,7 +29,7 @@ public class VtParserOscColorTests
     public void Osc4_SetPaletteColor()
     {
         parser.Send("\x1b]4;1;rgb:ff/00/00\a");
-        Assert.Equal(0xFFFF0000u, parser.Palette[1]);
+        Assert.Equal(0xFFFF0000u, parser.Osc.Palette[1]);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class VtParserOscColorTests
         // width maps to 0xff. A 1-digit 'f' is 4-bit full intensity and must
         // become 0xff (nibble replication), not 0x0f.
         parser.Send("\x1b]4;1;rgb:f/0/0\a");
-        Assert.Equal(0xFFFF0000u, parser.Palette[1]);
+        Assert.Equal(0xFFFF0000u, parser.Osc.Palette[1]);
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class VtParserOscColorTests
     {
         // 16-bit channels: ffff -> 0xff, 0000 -> 0x00, 8000 -> ~0x80 (proportional).
         parser.Send("\x1b]4;2;rgb:ffff/0000/8000\a");
-        Assert.Equal(0xFFFF0080u, parser.Palette[2]);
+        Assert.Equal(0xFFFF0080u, parser.Osc.Palette[2]);
     }
 
     [Fact]
@@ -62,14 +62,14 @@ public class VtParserOscColorTests
     public void Osc10_SetDefaultForeground()
     {
         parser.Send("\x1b]10;rgb:ff/ff/ff\a");
-        Assert.Equal(0xFFFFFFFFu, parser.DefaultForeground);
+        Assert.Equal(0xFFFFFFFFu, parser.Osc.DefaultForeground);
     }
 
     [Fact]
     public void Osc11_SetDefaultBackground()
     {
         parser.Send("\x1b]11;rgb:00/00/00\a");
-        Assert.Equal(0xFF000000u, parser.DefaultBackground);
+        Assert.Equal(0xFF000000u, parser.Osc.DefaultBackground);
     }
 
     [Fact]
@@ -83,11 +83,11 @@ public class VtParserOscColorTests
     [Fact]
     public void Osc104_ResetPalette_RestoresThemeColor()
     {
-        var original = parser.Palette[1];
+        var original = parser.Osc.Palette[1];
         parser.Send("\x1b]4;1;rgb:12/34/56\a");
-        Assert.NotEqual(original, parser.Palette[1]);
+        Assert.NotEqual(original, parser.Osc.Palette[1]);
 
         parser.Send("\x1b]104;1\a");
-        Assert.Equal(original, parser.Palette[1]);
+        Assert.Equal(original, parser.Osc.Palette[1]);
     }
 }

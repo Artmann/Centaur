@@ -28,7 +28,7 @@ public class VtParserModesTests : VtParserFixture
     [Fact]
     public void CursorVisible_DefaultTrue()
     {
-        Assert.True(parser.CursorVisible);
+        Assert.True(parser.Modes.CursorVisible);
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public class VtParserModesTests : VtParserFixture
     {
         Send("\x1b[?25l");
 
-        Assert.False(parser.CursorVisible);
+        Assert.False(parser.Modes.CursorVisible);
     }
 
     [Fact]
@@ -45,31 +45,31 @@ public class VtParserModesTests : VtParserFixture
         Send("\x1b[?25l");
         Send("\x1b[?25h");
 
-        Assert.True(parser.CursorVisible);
+        Assert.True(parser.Modes.CursorVisible);
     }
 
     [Fact]
     public void ApplicationCursorKeys_SetAndReset()
     {
-        Assert.False(parser.ApplicationCursorKeys);
+        Assert.False(parser.Modes.ApplicationCursorKeys);
 
         Send("\x1b[?1h");
-        Assert.True(parser.ApplicationCursorKeys);
+        Assert.True(parser.Modes.ApplicationCursorKeys);
 
         Send("\x1b[?1l");
-        Assert.False(parser.ApplicationCursorKeys);
+        Assert.False(parser.Modes.ApplicationCursorKeys);
     }
 
     [Fact]
     public void BracketedPasteMode_SetAndReset()
     {
-        Assert.False(parser.BracketedPasteMode);
+        Assert.False(parser.Modes.BracketedPasteMode);
 
         Send("\x1b[?2004h");
-        Assert.True(parser.BracketedPasteMode);
+        Assert.True(parser.Modes.BracketedPasteMode);
 
         Send("\x1b[?2004l");
-        Assert.False(parser.BracketedPasteMode);
+        Assert.False(parser.Modes.BracketedPasteMode);
     }
 
     // === Feature 2: Cursor Save/Restore ===

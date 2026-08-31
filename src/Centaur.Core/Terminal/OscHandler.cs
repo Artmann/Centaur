@@ -6,15 +6,15 @@ namespace Centaur.Core.Terminal;
 /// Handles OSC (Operating System Command) sequences: the window title and icon name, the
 /// working directory, the 256-color palette and the default fore/background, hyperlinks,
 /// clipboard access, and semantic prompt marks. Holds the state those sequences set, which
-/// <see cref="VtParser"/> exposes as its own properties.
+/// callers read through <see cref="VtParser.Osc"/>.
 /// </summary>
-sealed class OscHandler
+public sealed class OscHandler
 {
     readonly TerminalTheme theme;
     readonly SgrPen pen;
     readonly Action<string> reply;
 
-    public OscHandler(TerminalTheme theme, SgrPen pen, Action<string> reply)
+    internal OscHandler(TerminalTheme theme, SgrPen pen, Action<string> reply)
     {
         this.theme = theme;
         this.pen = pen;
@@ -42,7 +42,7 @@ sealed class OscHandler
     /// <summary>Dispatches one complete OSC payload, everything between the introducer and
     /// its terminator. <paramref name="buffer"/> is the screen currently on display, which
     /// the semantic prompt marks attach to.</summary>
-    public void Dispatch(ReadOnlySpan<byte> payload, ScreenBuffer buffer)
+    internal void Dispatch(ReadOnlySpan<byte> payload, ScreenBuffer buffer)
     {
         if (payload.IsEmpty)
         {

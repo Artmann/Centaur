@@ -34,21 +34,21 @@ public class VtParserOscTitleTests
     public void Osc0_SetsWindowTitle()
     {
         parser.Send("\x1b]0;ab\a");
-        Assert.Equal("ab", parser.WindowTitle);
+        Assert.Equal("ab", parser.Osc.WindowTitle);
     }
 
     [Fact]
     public void Osc2_SetsWindowTitle()
     {
         parser.Send("\x1b]2;ab\a");
-        Assert.Equal("ab", parser.WindowTitle);
+        Assert.Equal("ab", parser.Osc.WindowTitle);
     }
 
     [Fact]
     public void Osc2_StTerminator_SetsWindowTitle()
     {
         parser.Send("\x1b]2;ab\x1b\\");
-        Assert.Equal("ab", parser.WindowTitle);
+        Assert.Equal("ab", parser.Osc.WindowTitle);
     }
 
     [Fact]
@@ -56,21 +56,21 @@ public class VtParserOscTitleTests
     {
         // "— ‐" : EM DASH U+2014 (E2 80 94), space, HYPHEN U+2010 (E2 80 90).
         parser.Send("\x1b]2;— ‐\a");
-        Assert.Equal("— ‐", parser.WindowTitle);
+        Assert.Equal("— ‐", parser.Osc.WindowTitle);
     }
 
     [Fact]
     public void Osc2_EmptyTitle()
     {
         parser.Send("\x1b]2;\a");
-        Assert.Equal("", parser.WindowTitle);
+        Assert.Equal("", parser.Osc.WindowTitle);
     }
 
     [Fact]
     public void Osc1_SetsIconName()
     {
         parser.Send("\x1b]1;myicon\a");
-        Assert.Equal("myicon", parser.IconName);
+        Assert.Equal("myicon", parser.Osc.IconName);
     }
 
     [Fact]

@@ -17,16 +17,12 @@ public class VtParser
     // DEC private mode state, all of it held by DecModes except the alternate-screen
     // flag, which tracks which of the two buffers this parser is writing to.
     readonly DecModes modes = new();
-    public bool CursorVisible => modes.CursorVisible;
-    public bool ApplicationCursorKeys => modes.ApplicationCursorKeys;
-    public bool BracketedPasteMode => modes.BracketedPasteMode;
-    public bool IsAlternateScreen { get; private set; }
 
-    // Mouse reporting modes.
-    public MouseTrackingMode MouseTracking => modes.MouseTracking; // 1000/1002/1003
-    public bool MouseSgrMode => modes.MouseSgrMode; // 1006
-    public bool FocusEventMode => modes.FocusEventMode; // 1004
-    public bool AltScrollMode => modes.AltScrollMode; // 1007
+    /// <summary>Every DEC private mode a program has set: cursor visibility, application
+    /// cursor keys, bracketed paste, and the mouse reporting modes.</summary>
+    public DecModes Modes => modes;
+
+    public bool IsAlternateScreen { get; private set; }
     public ScreenBuffer ActiveBuffer => buffer;
 
     // Response channel back to the PTY for queries (DA, DECRQM, OSC color/clipboard
@@ -54,21 +50,9 @@ public class VtParser
         return version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "0.0.0";
     }
 
-    // OSC-driven state.
-    public string? WindowTitle => osc.WindowTitle; // OSC 0/2
-    public string? IconName => osc.IconName; // OSC 0/1
-    public string? WorkingDirectory => osc.WorkingDirectory; // OSC 7
-    public uint[] Palette => osc.Palette; // OSC 4/104
-    public uint DefaultForeground => osc.DefaultForeground; // OSC 10
-    public uint DefaultBackground => osc.DefaultBackground; // OSC 11
-    public int? LastExitCode => osc.LastExitCode; // OSC 133;D;<code>
-
-    // Fired for OSC 52 clipboard writes/clears (read requests use Respond instead).
-    public event Action<ClipboardRequest>? ClipboardChanged
-    {
-        add => osc.ClipboardChanged += value;
-        remove => osc.ClipboardChanged -= value;
-    }
+    /// <summary>State the OSC sequences carry - window title, working directory, the palette
+    /// and default colours, the last exit code - and the OSC 52 clipboard event.</summary>
+    public OscHandler Osc => osc;
 
     // Saved cursor state (DECSC/DECRC). Per-screen: the main and alternate buffers
     // each have their own register, matching xterm. A full-screen app's save/restore

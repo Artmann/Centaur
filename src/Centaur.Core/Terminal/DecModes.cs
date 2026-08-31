@@ -5,7 +5,7 @@ namespace Centaur.Core.Terminal;
 /// state: the one mode with a side effect, 1049 (alternate screen), stays on the parser
 /// because it swaps the screen buffer.
 /// </summary>
-sealed class DecModes
+public sealed class DecModes
 {
     public bool ApplicationCursorKeys { get; private set; } // 1
     public bool CursorVisible { get; private set; } = true; // 25
@@ -16,7 +16,7 @@ sealed class DecModes
     public bool BracketedPasteMode { get; private set; } // 2004
 
     /// <summary>Applies one mode, returning false for the ones held elsewhere.</summary>
-    public bool TrySet(int mode, bool enabled)
+    internal bool TrySet(int mode, bool enabled)
     {
         if (TrySetMouse(mode, enabled))
         {
@@ -72,7 +72,7 @@ sealed class DecModes
 
     /// <summary>DECRQM reply state: 0 = not recognized, 1 = set, 2 = reset. The alternate
     /// screen is reported too, from the flag the parser keeps.</summary>
-    public int Report(int mode, bool alternateScreen) =>
+    internal int Report(int mode, bool alternateScreen) =>
         mode switch
         {
             1 => ApplicationCursorKeys ? 1 : 2,
