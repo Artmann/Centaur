@@ -14,6 +14,15 @@
 ## Commit Messages
 
 - Don't include Claude as the author in commit messages
+- Use [Conventional Commits](https://www.conventionalcommits.org/) - release-please derives the
+  version bump and the changelog from them, so the prefix is load-bearing
+- Format is `<type>(<optional scope>): <subject>`. Keep the existing prose subject style after the
+  prefix: `feat(tabs): give the tab strip room, and a double-click to rename`
+- Types in use: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`
+- `feat` bumps the minor, `fix` and `perf` bump the patch, and a `!` after the type or a
+  `BREAKING CHANGE:` footer bumps the major
+- A commit with no recognised prefix is skipped entirely - it neither bumps the version nor appears
+  in the changelog. Nothing in CI catches this, so it is on you to get the prefix right
 
 ## Avalonia Rendering
 

@@ -1,29 +1,40 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
+  release-please:
+    name: Release PR / tag
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+
   build-windows:
     name: Build Windows (win-x64)
+    needs: release-please
+    # A release created with GITHUB_TOKEN does not fire `release: published`, so the
+    # packaging hangs off release-please's own output rather than its own workflow.
+    if: needs.release-please.outputs.released == 'true'
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
-
-      - name: Derive version from tag
-        id: ver
-        shell: pwsh
-        run: |
-          $tag = '${{ github.event.release.tag_name }}'
-          $version = $tag -replace '^v', ''
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Publish self-contained single-file
         shell: pwsh
@@ -35,19 +46,19 @@ jobs:
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DebugType=embedded `
-            -p:Version=${{ steps.ver.outputs.version }} `
+            -p:Version=${{ needs.release-please.outputs.version }} `
             -o publish/win-x64
 
       - name: Rename exe with version
+        id: pkg
         shell: pwsh
         run: |
-          $exe = "Centaur-${{ steps.ver.outputs.version }}-win-x64.exe"
+          $exe = "Centaur-${{ needs.release-please.outputs.version }}-win-x64.exe"
           Move-Item publish/win-x64/Centaur.App.exe $exe
           "asset=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-        id: pkg
 
       - name: Upload asset to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ needs.release-please.outputs.tag }}
           files: ${{ steps.pkg.outputs.asset }}
