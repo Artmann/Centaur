@@ -26,6 +26,33 @@ out of scope — see bottom.
 - [ ] Parser unit tests in `tests/Centaur.Tests` for each new sequence (TDD).
 - [ ] Manual matrix: vim, htop, lazygit, git log, ls --color, btop.
 
+### Known emulation defects
+
+> Found while tracking down the green blocks left behind by diff rendering. That one was
+> `CursorRegisters` dropping the SGR style flags across DECSC/DECRC, which is fixed; these
+> are the other real defects the same search turned up, none of them yet covered by tests.
+
+- [ ] **Torn frames** — `TerminalSurface.Snapshot` hands back the shared, reused
+  `snapshotBuffer` under the lock on the UI thread, but `TerminalDrawOperation.Render` walks
+  it later on the render thread with no lock. The next frame can overwrite the array
+  mid-draw, mixing rows from two states.
+- [ ] **Region-unaware line editing** — `ScreenOps.InsertLines`/`DeleteLines` shift rows
+  across the whole screen, ignoring `Region.Top`/`Bottom`, and `SU`/`SD` go through
+  `ScrollRegion.ScrollUp`/`ScrollDown`, which are hardcoded to the full screen. IL should be
+  `ScrollDownIn(n, cursorY, Region.Bottom)` and DL `ScrollUpIn(n, cursorY, Region.Bottom)`,
+  both ignored when the cursor is outside the region. Note `ScrollUpIn` feeds scrollback
+  whenever the region is the whole screen, so DL needs an opt-out that `LineFeed` and `SU`
+  do not take.
+- [ ] **Stale selection** — the selection is cleared on scroll and on copy, never when new
+  output rewrites the rows it covers, so it stays pinned to fixed screen rows and keeps
+  painting them swapped.
+- [ ] **No wcwidth** — `ScreenOps.Write` advances one cell per `char`, so a wide CJK glyph
+  takes one column instead of two and an astral emoji becomes two cells each holding half a
+  surrogate pair. Column accounting then drifts against what the program believes.
+- [ ] **Dropped resize** — `ShellChannel.Start` is `async void` and sets `started` before it
+  assigns `session`, so a `Resize` arriving during the await hits a null session and is
+  silently dropped, leaving the grid and the PTY disagreeing on width.
+
 ## Phase 2 — Shell integration (Ghostty's signature productivity layer)
 
 > Builds on OSC 7 + a new OSC 133 handler.
