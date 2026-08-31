@@ -37,6 +37,22 @@ public static class TerminalKeyEncoder
         [Key.F12] = "\x1b[24~"u8.ToArray(),
     }.ToFrozenDictionary();
 
+    // DECCKM (mode 1). With application cursor keys on, the cursor keys switch from the CSI
+    // form to SS3; a program that asked for them and gets CSI sees a different key entirely.
+    // Only these six move - the rest of the table is mode-independent.
+    static readonly FrozenDictionary<Key, byte[]> applicationCursorSequences = new Dictionary<
+        Key,
+        byte[]
+    >
+    {
+        [Key.Up] = "\x1bOA"u8.ToArray(),
+        [Key.Down] = "\x1bOB"u8.ToArray(),
+        [Key.Right] = "\x1bOC"u8.ToArray(),
+        [Key.Left] = "\x1bOD"u8.ToArray(),
+        [Key.Home] = "\x1bOH"u8.ToArray(),
+        [Key.End] = "\x1bOF"u8.ToArray(),
+    }.ToFrozenDictionary();
+
     // Shift+Tab is the classic "backtab" sequence; plain Tab stays \t.
     static readonly byte[] backTab = "\x1b[Z"u8.ToArray();
 
@@ -45,11 +61,20 @@ public static class TerminalKeyEncoder
     /// no sequence of its own and the caller should fall back to the typed text.
     /// The array is a fresh copy, so callers may keep or mutate it.
     /// </summary>
-    public static byte[]? Encode(Key key, KeyModifiers modifiers)
+    public static byte[]? Encode(
+        Key key,
+        KeyModifiers modifiers,
+        bool applicationCursorKeys = false
+    )
     {
         if (key == Key.Tab && modifiers.HasFlag(KeyModifiers.Shift))
         {
             return backTab.ToArray();
+        }
+
+        if (applicationCursorKeys && applicationCursorSequences.TryGetValue(key, out var applied))
+        {
+            return applied.ToArray();
         }
 
         return sequences.TryGetValue(key, out var sequence) ? sequence.ToArray() : null;

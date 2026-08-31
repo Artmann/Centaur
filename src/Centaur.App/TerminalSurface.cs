@@ -22,11 +22,16 @@ public sealed class TerminalSurface
     // Only for cell metrics - turning a pixel position into a grid cell.
     readonly TerminalRenderer renderer;
 
-    public TerminalSurface(TerminalTheme theme, TerminalRenderer renderer)
+    // Moving the viewport changes what is on screen, so the surface asks for the redraw
+    // itself rather than making every caller remember to.
+    readonly Action markDirty;
+
+    public TerminalSurface(TerminalTheme theme, TerminalRenderer renderer, Action markDirty)
     {
         // Start at a default size; the control resizes once it knows its bounds.
         parser = new VtParser(new ScreenBuffer(80, 24, theme), theme);
         this.renderer = renderer;
+        this.markDirty = markDirty;
     }
 
     /// <summary>The parser behind the surface. Reading a buffer through it means holding
@@ -79,6 +84,8 @@ public sealed class TerminalSurface
         {
             parser.ActiveBuffer.Scrollback.ScrollToBottom();
         }
+
+        markDirty();
     }
 
     /// <summary>Scrolls by wheel notches, three lines each.</summary>
@@ -110,6 +117,7 @@ public sealed class TerminalSurface
         }
 
         Selection.Clear();
+        markDirty();
         return true;
     }
 
@@ -157,8 +165,9 @@ public sealed class TerminalSurface
         }
     }
 
-    /// <summary>The grid cell under a pixel position, clamped to the screen.</summary>
-    (int col, int row) CellAt(Point position)
+    /// <summary>The grid cell under a pixel position, clamped to the screen. Public because
+    /// mouse reports need the same pixel-to-cell conversion the selection uses.</summary>
+    public (int col, int row) CellAt(Point position)
     {
         var active = parser.ActiveBuffer;
         var col = Math.Clamp((int)(position.X / renderer.cellWidth), 0, active.columns - 1);
