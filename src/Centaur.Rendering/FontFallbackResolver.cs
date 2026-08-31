@@ -23,9 +23,15 @@ internal sealed class FontFallbackResolver : IDisposable
     readonly BlockingCollection<char> queue = new();
     readonly Thread resolver;
 
-    // Matched typefaces get their own SKFont sized identically to the primary font.
+    // One SKFont per (typeface, bold, italic) combination, sized identically to the primary
+    // font. Only JetBrains Mono Regular is embedded, so bold and italic are synthesised via
+    // Embolden/SkewX - that keeps the typeface (and therefore every glyph id) unchanged across
+    // variants, which is what lets a single glyph buffer serve all of them.
     // Only ever touched on the render thread (GetFont), so a plain Dictionary is fine.
-    readonly Dictionary<SKTypeface, SKFont> fontCache = new();
+    readonly Dictionary<(SKTypeface? typeface, bool bold, bool italic), SKFont> fontCache = new();
+
+    // Horizontal shear applied for synthetic italics: negative leans the top of the glyph right.
+    const float italicSkew = -0.22f;
 
     public FontFallbackResolver(SKFont primaryFont)
     {
@@ -60,22 +66,30 @@ internal sealed class FontFallbackResolver : IDisposable
         return null;
     }
 
-    /// <summary>The font to draw with for a typeface from <see cref="ResolveTypeface"/>.</summary>
-    public SKFont GetFont(SKTypeface? tf)
+    /// <summary>The font to draw with for a typeface from <see cref="ResolveTypeface"/>, in the
+    /// synthetic bold/italic variant the cell's SGR attributes ask for.</summary>
+    public SKFont GetFont(SKTypeface? tf, bool bold = false, bool italic = false)
     {
-        if (tf == null)
+        // The overwhelmingly common case: primary typeface, no synthetic styling.
+        if (tf == null && !bold && !italic)
         {
             return primaryFont;
         }
 
-        if (fontCache.TryGetValue(tf, out var cached))
+        var key = (tf, bold, italic);
+        if (fontCache.TryGetValue(key, out var cached))
         {
             return cached;
         }
 
-        var matched = new SKFont(tf, primaryFont.Size) { Subpixel = true };
-        fontCache[tf] = matched;
-        return matched;
+        var variant = new SKFont(tf ?? primaryFont.Typeface, primaryFont.Size)
+        {
+            Subpixel = true,
+            Embolden = bold,
+            SkewX = italic ? italicSkew : 0f,
+        };
+        fontCache[key] = variant;
+        return variant;
     }
 
     void ResolveLoop()
@@ -114,6 +128,7 @@ internal sealed class FontFallbackResolver : IDisposable
         resolver.Join(TimeSpan.FromSeconds(1));
         queue.Dispose();
 
+        // The primary font is never stored in this cache, so it can't be double-disposed here.
         foreach (var f in fontCache.Values)
         {
             f.Dispose();

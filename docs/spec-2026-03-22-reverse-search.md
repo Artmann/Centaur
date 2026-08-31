@@ -1,4 +1,4 @@
-# Reverse Search (Ctrl+R) — Design Spec
+# Spec: Reverse Search (Ctrl+R)
 
 ## Context
 

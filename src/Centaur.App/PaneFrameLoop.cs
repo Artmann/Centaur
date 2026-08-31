@@ -21,11 +21,23 @@ public sealed class PaneFrameLoop
     // nothing in the terminal changed.
     readonly Func<bool> overlaysSelfUpdating;
 
-    public PaneFrameLoop(Control owner, Func<bool> overlaysSelfUpdating)
+    // Blinking cells are the one thing that needs a repaint on wall-clock time rather than on
+    // terminal output, so the loop owns the phase and asks whether anything is blinking.
+    readonly Func<bool> blinkingCellsPresent;
+
+    public PaneFrameLoop(
+        Control owner,
+        Func<bool> overlaysSelfUpdating,
+        Func<bool> blinkingCellsPresent
+    )
     {
         this.owner = owner;
         this.overlaysSelfUpdating = overlaysSelfUpdating;
+        this.blinkingCellsPresent = blinkingCellsPresent;
     }
+
+    /// <summary>The SGR 5/6 blink half-cycle the next frame should be drawn in.</summary>
+    public BlinkPhase Blink { get; } = new();
 
     /// <summary>True while the loop is running, i.e. the pane is on screen.</summary>
     public bool Running { get; private set; }
@@ -63,6 +75,13 @@ public sealed class PaneFrameLoop
         if (!Running)
         {
             return;
+        }
+
+        // Advance the blink phase, but only force a repaint when the last frame actually
+        // contained blinking cells - an ordinary terminal must still idle at zero frames.
+        if (Blink.Advance(timestamp) && blinkingCellsPresent())
+        {
+            MarkDirty();
         }
 
         if (scheduler.Tick(Stopwatch.GetTimestamp(), overlaysSelfUpdating()))

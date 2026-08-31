@@ -14,9 +14,17 @@ public class TerminalRenderer : IDisposable
     readonly TerminalTheme theme;
     readonly RenderProfiler? profiler;
     readonly GlyphPainter glyphs;
+    readonly CellDecorationPainter decorations;
 
     public float cellWidth { get; }
     public float cellHeight { get; }
+
+    /// <summary>
+    /// True when the last rendered frame contained at least one cell with SGR 5/6 (blink) set.
+    /// The control uses this to keep the frame scheduler's heartbeat running so the blink phase
+    /// keeps advancing on an otherwise idle terminal.
+    /// </summary>
+    public bool HasBlinkingCells { get; private set; }
 
     public TerminalRenderer(
         TerminalTheme theme,
@@ -46,6 +54,7 @@ public class TerminalRenderer : IDisposable
         var textYOffset = cellHeight - (cellHeight - font.Size) / 2;
 
         glyphs = new GlyphPainter(font, cellWidth, cellHeight, textYOffset);
+        decorations = new CellDecorationPainter(font, cellWidth, cellHeight, textYOffset);
     }
 
     /// <summary>Test hook: has font fallback for this codepoint been resolved off-thread yet?</summary>
@@ -58,7 +67,8 @@ public class TerminalRenderer : IDisposable
         TextSelection? selection = null,
         IReadOnlyList<IRenderOverlay>? overlays = null,
         bool cursorVisible = true,
-        bool readOnly = false
+        bool readOnly = false,
+        bool blinkVisible = true
     )
     {
         var clock = FrameClock.Start(profiler?.Enabled == true);
@@ -69,10 +79,17 @@ public class TerminalRenderer : IDisposable
         DrawBackgroundRuns(canvas, buffer, selection);
         clock.Mark();
 
-        var count = glyphs.Collect(buffer, selection);
+        var collected = glyphs.Collect(buffer, selection, blinkVisible);
+        HasBlinkingCells = collected.hasBlinking;
         clock.Mark();
 
-        glyphs.DrawCollected(canvas, count);
+        glyphs.DrawCollected(canvas, collected.count);
+
+        // Drawn after the glyphs, so a strikethrough lands on top of the character it crosses out.
+        if (collected.hasDecorations)
+        {
+            decorations.Draw(canvas, buffer, selection, blinkVisible);
+        }
         clock.Mark();
 
         if (cursorVisible)
@@ -104,12 +121,15 @@ public class TerminalRenderer : IDisposable
             var py = y * cellHeight;
 
             var runStart = 0;
-            var runColor = BackgroundOf(row[0], 0, y, selection);
+            var runColor = CellColors.Background(row[0], 0, y, selection);
 
             for (var x = 1; x <= buffer.columns; x++)
             {
                 // uint.MaxValue past the last column forces the final run to flush.
-                var bg = x < buffer.columns ? BackgroundOf(row[x], x, y, selection) : uint.MaxValue;
+                var bg =
+                    x < buffer.columns
+                        ? CellColors.Background(row[x], x, y, selection)
+                        : uint.MaxValue;
                 if (bg == runColor)
                 {
                     continue;
@@ -141,9 +161,9 @@ public class TerminalRenderer : IDisposable
 
         // Re-draw the character under the cursor inverted, so it stays readable.
         var cell = buffer[column, row];
-        if (cell.character > ' ')
+        if (cell.character > ' ' && !cell.invisible)
         {
-            glyphs.DrawGlyph(canvas, cell.character, column, row, theme.Background);
+            glyphs.DrawGlyph(canvas, cell, column, row, theme.Background);
         }
     }
 
@@ -175,16 +195,11 @@ public class TerminalRenderer : IDisposable
         }
     }
 
-    static uint BackgroundOf(Cell cell, int x, int y, TextSelection? selection)
-    {
-        var selected = selection.HasValue && TextSelection.IsInSelection(x, y, selection.Value);
-        return selected ? cell.foreground : cell.background;
-    }
-
     public void Dispose()
     {
         GC.SuppressFinalize(this);
         glyphs.Dispose();
+        decorations.Dispose();
         backgroundPaint.Dispose();
         cursorPaint.Dispose();
         readOnlyStrokePaint.Dispose();

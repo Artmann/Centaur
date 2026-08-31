@@ -9,11 +9,12 @@ namespace Centaur.Rendering;
 /// </summary>
 internal sealed class GlyphRunBuffers
 {
-    // Filled by the collect pass, one entry per visible glyph.
+    // Filled by the collect pass, one entry per visible glyph. The font is the (typeface, bold,
+    // italic) variant the glyph is drawn with, so it also carries the cell's SGR styling.
     public ushort[] glyphs = [];
     public SKPoint[] positions = [];
     public uint[] colors = [];
-    public SKTypeface?[] typefaces = [];
+    public SKFont[] fonts = [];
 
     // Marks the glyphs already emitted, so the colour-batching pass visits each once.
     public bool[] drawn = [];
@@ -36,7 +37,7 @@ internal sealed class GlyphRunBuffers
         positions = new SKPoint[cellCount];
         colors = new uint[cellCount];
         drawn = new bool[cellCount];
-        typefaces = new SKTypeface?[cellCount];
+        fonts = new SKFont[cellCount];
         runGlyphs = new ushort[cellCount];
         runPositions = new SKPoint[cellCount];
     }

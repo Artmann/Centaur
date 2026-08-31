@@ -3,10 +3,16 @@ using SkiaSharp;
 
 namespace Centaur.Rendering;
 
+/// <summary>What a <see cref="GlyphPainter.Collect"/> pass found in the grid: how many glyphs
+/// to draw, plus the two things the rest of the frame needs to know about cells that carry no
+/// glyph of their own.</summary>
+internal readonly record struct GlyphCollection(int count, bool hasBlinking, bool hasDecorations);
+
 /// <summary>
-/// Turns cells into drawn glyphs: resolves a typeface per character, collects the visible
-/// glyphs of a grid into flat scratch arrays, then emits them batched by (colour, typeface)
-/// so a full screen costs a handful of DrawText calls rather than one per cell.
+/// Turns cells into drawn glyphs: resolves a font per character - the fallback typeface for
+/// codepoints the primary font lacks, in the synthetic bold/italic variant the cell asks for -
+/// collects the visible glyphs of a grid into flat scratch arrays, then emits them batched by
+/// (colour, font) so a full screen costs a handful of DrawText calls rather than one per cell.
 /// </summary>
 internal sealed class GlyphPainter : IDisposable
 {
@@ -31,13 +37,16 @@ internal sealed class GlyphPainter : IDisposable
     /// <summary>Test hook: has the background fallback resolver answered for this codepoint?</summary>
     internal bool IsFallbackResolved(char c) => fallbacks.IsResolved(c);
 
-    /// <summary>Gathers every non-blank cell of the grid into the scratch arrays, returning how
+    /// <summary>Gathers every drawable cell of the grid into the scratch arrays, reporting how
     /// many glyphs <see cref="DrawCollected"/> should emit.</summary>
-    public int Collect(ScreenBuffer buffer, TextSelection? selection)
+    public GlyphCollection Collect(ScreenBuffer buffer, TextSelection? selection, bool blinkVisible)
     {
         buffers.Ensure(buffer.columns * buffer.rows);
 
         var count = 0;
+        var blinking = false;
+        var decorated = false;
+
         for (var y = 0; y < buffer.rows; y++)
         {
             var row = buffer.GetRow(y);
@@ -46,23 +55,40 @@ internal sealed class GlyphPainter : IDisposable
             for (var x = 0; x < buffer.columns; x++)
             {
                 var cell = row[x];
-                if (cell.character <= ' ')
+                blinking |= cell.blink;
+                decorated |= IsDecorated(cell);
+
+                if (!HasVisibleGlyph(cell, blinkVisible))
                 {
                     continue;
                 }
 
-                var tf = fallbacks.ResolveTypeface(cell.character);
-                buffers.glyphs[count] = fallbacks.GetFont(tf).GetGlyph(cell.character);
-                buffers.typefaces[count] = tf;
+                var glyphFont = fallbacks.GetFont(
+                    fallbacks.ResolveTypeface(cell.character),
+                    cell.bold,
+                    cell.italic
+                );
+                buffers.glyphs[count] = glyphFont.GetGlyph(cell.character);
+                buffers.fonts[count] = glyphFont;
                 buffers.positions[count] = new SKPoint(x * cellWidth, py);
-                buffers.colors[count] = ForegroundOf(cell, x, y, selection);
+                buffers.colors[count] = CellColors.Foreground(cell, x, y, selection);
                 count++;
             }
         }
-        return count;
+
+        return new GlyphCollection(count, blinking, decorated);
     }
 
-    /// <summary>Draws the collected glyphs, one text blob per (colour, typeface) run.</summary>
+    /// <summary>Whether the cell carries a stroke that is drawn even when its glyph is not.</summary>
+    static bool IsDecorated(Cell cell) =>
+        cell.underline != UnderlineStyle.None || cell.strikethrough || cell.overline;
+
+    /// <summary>Blank cells carry no glyph, SGR 8 conceals it, and a blinking cell drops it for
+    /// the off half of the blink cycle - but all three can still be decorated.</summary>
+    static bool HasVisibleGlyph(Cell cell, bool blinkVisible) =>
+        cell.character > ' ' && !cell.invisible && (blinkVisible || !cell.blink);
+
+    /// <summary>Draws the collected glyphs, one text blob per (colour, font) run.</summary>
     public void DrawCollected(SKCanvas canvas, int count)
     {
         Array.Clear(buffers.drawn, 0, count);
@@ -75,12 +101,16 @@ internal sealed class GlyphPainter : IDisposable
             }
 
             var color = buffers.colors[i];
-            var tf = buffers.typefaces[i];
+            var runFont = buffers.fonts[i];
             var runCount = 0;
 
             for (var j = i; j < count; j++)
             {
-                if (!buffers.drawn[j] && buffers.colors[j] == color && buffers.typefaces[j] == tf)
+                if (
+                    !buffers.drawn[j]
+                    && buffers.colors[j] == color
+                    && ReferenceEquals(buffers.fonts[j], runFont)
+                )
                 {
                     buffers.runGlyphs[runCount] = buffers.glyphs[j];
                     buffers.runPositions[runCount] = buffers.positions[j];
@@ -89,16 +119,20 @@ internal sealed class GlyphPainter : IDisposable
                 }
             }
 
-            DrawRun(canvas, fallbacks.GetFont(tf), runCount, color);
+            DrawRun(canvas, runFont, runCount, color);
         }
     }
 
-    /// <summary>Draws a single character at a grid position - the inverted glyph under the cursor.</summary>
-    public void DrawGlyph(SKCanvas canvas, char c, int column, int row, uint color)
+    /// <summary>Draws a single cell's glyph at a grid position - the inverted glyph under the
+    /// cursor, which keeps the cell's own bold/italic styling.</summary>
+    public void DrawGlyph(SKCanvas canvas, Cell cell, int column, int row, uint color)
     {
-        var tf = fallbacks.ResolveTypeface(c);
-        var glyphFont = fallbacks.GetFont(tf);
-        buffers.runGlyphs[0] = glyphFont.GetGlyph(c);
+        var glyphFont = fallbacks.GetFont(
+            fallbacks.ResolveTypeface(cell.character),
+            cell.bold,
+            cell.italic
+        );
+        buffers.runGlyphs[0] = glyphFont.GetGlyph(cell.character);
         buffers.runPositions[0] = new SKPoint(column * cellWidth, row * cellHeight + textYOffset);
         DrawRun(canvas, glyphFont, 1, color);
     }
@@ -127,12 +161,6 @@ internal sealed class GlyphPainter : IDisposable
             paint.Color = new SKColor(color);
             canvas.DrawText(blob, 0, 0, paint);
         }
-    }
-
-    static uint ForegroundOf(Cell cell, int x, int y, TextSelection? selection)
-    {
-        var selected = selection.HasValue && TextSelection.IsInSelection(x, y, selection.Value);
-        return selected ? cell.background : cell.foreground;
     }
 
     public void Dispose()

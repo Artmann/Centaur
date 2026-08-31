@@ -21,6 +21,7 @@ sealed class TerminalDrawOperation : ICustomDrawOperation
     readonly IReadOnlyList<IRenderOverlay> overlays;
     readonly bool cursorVisible;
     readonly bool readOnly;
+    readonly bool blinkVisible;
 
     public TerminalDrawOperation(
         Rect bounds,
@@ -29,7 +30,8 @@ sealed class TerminalDrawOperation : ICustomDrawOperation
         TextSelection? selection,
         IReadOnlyList<IRenderOverlay> overlays,
         bool cursorVisible = true,
-        bool readOnly = false
+        bool readOnly = false,
+        bool blinkVisible = true
     )
     {
         this.bounds = bounds;
@@ -39,6 +41,7 @@ sealed class TerminalDrawOperation : ICustomDrawOperation
         this.overlays = overlays;
         this.cursorVisible = cursorVisible;
         this.readOnly = readOnly;
+        this.blinkVisible = blinkVisible;
     }
 
     public Rect Bounds => bounds;
@@ -67,7 +70,8 @@ sealed class TerminalDrawOperation : ICustomDrawOperation
             selection,
             overlays,
             cursorVisible,
-            readOnly
+            readOnly,
+            blinkVisible
         );
     }
 }

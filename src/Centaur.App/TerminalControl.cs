@@ -47,8 +47,7 @@ public class TerminalControl : Control, IPaneTerminal
 
         profiler = services.Profiler;
         renderer = new TerminalRenderer(theme, profiler: profiler);
-        var fpsOverlay = services.FpsOverlay;
-        frames = new PaneFrameLoop(this, () => fpsOverlay.Enabled || profiler.Enabled);
+        frames = CreateFrameLoop(services.FpsOverlay);
 
         surface = new TerminalSurface(theme, renderer);
 
@@ -79,6 +78,11 @@ public class TerminalControl : Control, IPaneTerminal
 
         ContextMenu = BuildContextMenu();
     }
+
+    // The two things that need frames without the terminal itself changing: overlays on their
+    // own clock, and the blink phase the loop advances for any cell carrying SGR 5/6.
+    PaneFrameLoop CreateFrameLoop(FpsOverlayExtension fpsOverlay) =>
+        new(this, () => fpsOverlay.Enabled || profiler.Enabled, () => renderer.HasBlinkingCells);
 
     public event Action<SplitDirection>? SplitRequested;
     public event Action? CloseRequested;
@@ -347,7 +351,8 @@ public class TerminalControl : Control, IPaneTerminal
                 surface.Selection.Normalized,
                 overlays,
                 cursorVisible: cursorVis,
-                readOnly: shell.IsReadOnly
+                readOnly: shell.IsReadOnly,
+                blinkVisible: frames.Blink.Visible
             )
         );
     }
