@@ -40,6 +40,7 @@ public class TerminalControl : Control, IPaneTerminal
 
     readonly ShellChannel shell;
     readonly InlineSuggestions suggestions;
+    readonly TerminalInput input;
     readonly TerminalOverlays overlays;
     readonly KeyShortcutTable shortcuts;
 
@@ -78,7 +79,8 @@ public class TerminalControl : Control, IPaneTerminal
             surface.BufferLock,
             frames.MarkDirty
         );
-        overlays = new TerminalOverlays(this, services, theme, RunHistoryCommand);
+        input = new TerminalInput(shell, suggestions, host.Events);
+        overlays = new TerminalOverlays(this, services, theme, input.RunCommand);
         shortcuts = BuildShortcuts();
 
         Focusable = true;
@@ -108,7 +110,7 @@ public class TerminalControl : Control, IPaneTerminal
             .Add(Key.PageUp, KeyModifiers.Shift, () => ScrollPage(up: true))
             .Add(Key.PageDown, KeyModifiers.Shift, () => ScrollPage(up: false))
             .Add(Key.Insert, KeyModifiers.Shift, PasteFromClipboard)
-            .Add(Key.Tab, KeyModifiers.None, AcceptSuggestion)
+            .Add(Key.Tab, KeyModifiers.None, input.AcceptSuggestion)
             .Add(Key.P, KeyModifiers.Control | KeyModifiers.Shift, ToggleProfiler)
             .Add(Key.C, KeyModifiers.Control, CopySelectionIfPresent)
             .Add(Key.V, KeyModifiers.Control, PasteFromClipboard)
@@ -293,29 +295,12 @@ public class TerminalControl : Control, IPaneTerminal
             return;
         }
 
-        var bytes = e.KeyModifiers.HasFlag(KeyModifiers.Control)
-            ? ControlByteFor(e.Key)
-            : EncodeTypedKey(e.Key, e.KeyModifiers);
-
+        var bytes = input.Encode(e.Key, e.KeyModifiers);
         if (bytes != null)
         {
             shell.Send(bytes);
             e.Handled = true;
         }
-    }
-
-    /// <summary>Tab accepts the inline suggestion, or declines so it reaches the shell as a
-    /// tab - which is what the user wanted when there is nothing to accept.</summary>
-    bool AcceptSuggestion()
-    {
-        var ghost = suggestions.TakeGhost();
-        if (ghost == null)
-        {
-            return false;
-        }
-
-        shell.Send(Encoding.UTF8.GetBytes(ghost));
-        return true;
     }
 
     // Scrollback paging, redrawing only when the surface actually moved.
@@ -355,60 +340,6 @@ public class TerminalControl : Control, IPaneTerminal
         );
     }
 
-    // Ctrl+A is 0x01, Ctrl+C (with nothing selected) 0x03, and so on through Ctrl+Z. Any
-    // other Ctrl combination has no byte of its own and is left unsent.
-    byte[]? ControlByteFor(Key key)
-    {
-        if (key is < Key.A or > Key.Z)
-        {
-            return null;
-        }
-
-        suggestions.Clear();
-        return [(byte)(key - Key.A + 1)];
-    }
-
-    // The unmodified path. Suggestion bookkeeping happens here rather than in the encoder
-    // because it depends on what the pane knows - the typed line, and whether it is read-only.
-    byte[]? EncodeTypedKey(Key key, KeyModifiers modifiers)
-    {
-        if (key == Key.Enter && !shell.IsReadOnly)
-        {
-            CaptureSubmittedCommand();
-        }
-
-        if (
-            key
-            is Key.Up
-                or Key.Down
-                or Key.Escape
-                or Key.Back
-                or Key.Delete
-                or Key.Left
-                or Key.Home
-                or Key.End
-        )
-        {
-            suggestions.Clear();
-        }
-
-        return TerminalKeyEncoder.Encode(key, modifiers);
-    }
-
-    // Enter is the only moment the typed line is still on screen and known to be complete,
-    // so history and directory tracking both hang off it.
-    void CaptureSubmittedCommand()
-    {
-        var input = suggestions.ReadTypedInput();
-        if (!string.IsNullOrWhiteSpace(input))
-        {
-            host.Events.Publish(new CommandSubmittedEvent(input.Trim()));
-            shell.NoteCommandSubmitted(input.Trim());
-        }
-
-        suggestions.NoteCommandSubmitted();
-    }
-
     protected override void OnTextInput(TextInputEventArgs e)
     {
         base.OnTextInput(e);
@@ -423,14 +354,6 @@ public class TerminalControl : Control, IPaneTerminal
         suggestions.NoteTypedText(e.Text);
         shell.Send(Encoding.UTF8.GetBytes(e.Text));
         e.Handled = true;
-    }
-
-    // A command picked out of reverse search is treated exactly like one the user typed:
-    // it joins the history and is sent to the shell with its Enter already attached.
-    void RunHistoryCommand(string command)
-    {
-        host.Events.Publish(new CommandSubmittedEvent(command));
-        shell.Send(Encoding.UTF8.GetBytes(command + "\r"));
     }
 
     async void PasteFromClipboard()
