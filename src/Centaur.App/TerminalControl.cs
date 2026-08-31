@@ -4,21 +4,11 @@ using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Media;
-using Avalonia.Platform;
-using Avalonia.Rendering.SceneGraph;
-using Avalonia.Skia;
-using Avalonia.Threading;
 using Centaur.App.Menus;
 using Centaur.App.Splits;
 using Centaur.Core.Hosting;
-using Centaur.Core.Pty;
-using Centaur.Core.Terminal;
-using Centaur.Pty.Windows;
 using Centaur.Rendering;
-using Microsoft.Extensions.DependencyInjection;
-using SkiaSharp;
 
 namespace Centaur.App;
 
