@@ -24,6 +24,29 @@
 - A commit with no recognised prefix is skipped entirely - it neither bumps the version nor appears
   in the changelog. Nothing in CI catches this, so it is on you to get the prefix right
 
+## Verifying the App
+
+- The app has no scripting port. To prove GUI behaviour, drive the real window with the
+  `verify-centaur` skill (`.claude/skills/verify-centaur/`) rather than reasoning from the code
+- `.claude/skills/verify-centaur/features/` is the maintained map of user-facing features and how
+  to drive each one. When a feature changes or a shortcut moves, update the matching feature file
+  in the same commit
+- Runs land in `.verify/<runId>/` (git-ignored): `artifacts/` for screenshots, `config/` for the
+  instance's persisted JSON, `workdir/` for the scratch directory its shells start in
+
+### Config isolation
+
+- `ConfigPaths` (`Centaur.Core.Terminal`) resolves where session, settings and history JSON live.
+  It is `%APPDATA%\Centaur` unless `CENTAUR_CONFIG_DIR` overrides it
+- That override is what lets a verification instance run **while the user has Centaur open**
+  without inheriting - and then overwriting - their tabs, history and settings
+- Redirecting the `APPDATA` environment variable does not work: Windows resolves
+  `SpecialFolder.ApplicationData` through `SHGetKnownFolderPath`, which reads the user's profile
+  rather than the environment. Route every new state file through `ConfigPaths`, never through
+  `Environment.GetFolderPath` directly
+- Never stop Centaur by process name - that takes the user's own terminal with it. Signal only
+  the PID the run started
+
 ## Avalonia Rendering
 
 - Avalonia uses **immediate-mode rendering** - each frame receives a fresh canvas

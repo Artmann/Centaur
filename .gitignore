@@ -21,3 +21,6 @@ Thumbs.db
 
 # Publish output
 publish/
+
+# Verification runs (verify-centaur skill): screenshots, per-run config, scratch workdir
+.verify/
