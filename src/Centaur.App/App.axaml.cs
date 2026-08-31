@@ -130,11 +130,7 @@ public partial class App : Application
 
     static string AppDataPath(string fileName)
     {
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Centaur",
-            fileName
-        );
+        return ConfigPaths.For(fileName);
     }
 
     /// <summary>
