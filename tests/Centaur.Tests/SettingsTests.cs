@@ -145,7 +145,7 @@ public class SettingsTests : TempDirectory
             StartDirectory = StartDirectoryMode.HomeFolder,
             ShellCommand = "pwsh.exe",
             ScrollbackLines = 5000,
-            Bell = BellMode.Visual,
+            Bell = BellMode.Flash,
             ThemeId = "catppuccin-latte",
             FontSize = 18,
             LineHeight = 1.4,
@@ -162,7 +162,7 @@ public class SettingsTests : TempDirectory
         Assert.Equal(StartDirectoryMode.HomeFolder, loaded.StartDirectory);
         Assert.Equal("pwsh.exe", loaded.ShellCommand);
         Assert.Equal(5000, loaded.ScrollbackLines);
-        Assert.Equal(BellMode.Visual, loaded.Bell);
+        Assert.Equal(BellMode.Flash, loaded.Bell);
         Assert.Equal("catppuccin-latte", loaded.ThemeId);
         Assert.Equal(18, loaded.FontSize);
         Assert.Equal(1.4, loaded.LineHeight);

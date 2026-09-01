@@ -1,3 +1,4 @@
+using System.Text;
 using Avalonia.Controls;
 using Centaur.Core.Hosting;
 using Centaur.Core.Terminal;
@@ -9,6 +10,34 @@ public enum SettingsTab
 {
     General,
     Appearance,
+}
+
+/// <summary>Turns a tab into the words the sidebar and the page heading show.</summary>
+static class SettingsTabNames
+{
+    /// <summary>
+    /// The enum name split into sentence case. Derived rather than tabulated so a two-word tab
+    /// added later reads as "Key bindings" without an entry here - and so that nowhere on the
+    /// page renders a raw <c>ToString</c>.
+    /// </summary>
+    public static string Label(this SettingsTab tab)
+    {
+        var name = tab.ToString();
+        var label = new StringBuilder(name.Length + 4);
+
+        foreach (var c in name)
+        {
+            if (char.IsUpper(c) && label.Length > 0)
+            {
+                label.Append(' ').Append(char.ToLowerInvariant(c));
+                continue;
+            }
+
+            label.Append(c);
+        }
+
+        return label.ToString();
+    }
 }
 
 /// <summary>

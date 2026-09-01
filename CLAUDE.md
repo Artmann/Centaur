@@ -125,6 +125,17 @@ The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage compon
 - Cells store resolved `uint` ARGB colours, not palette indices, so a theme change needs an
   explicit recolour pass over both screens and the scrollback (`TerminalSurface.SetTheme`).
   Without it, text already on screen keeps the old palette
+- **Every interactive surface on the settings page is a `SettingsButton`** - never a bare `Border`
+  with a `PointerPressed` handler. A `Border` is not focusable, so a hand-rolled one has no tab
+  stop, no Space/Enter and no focus visual. `Border.Render` is sealed, so the focus ring is the
+  button's own permanently-1px border with only its colour changing; never thicken it on focus, or
+  the layout shifts by a pixel
+- A theme change **rebuilds the page**, destroying the control the keyboard is on. `SettingsPage`
+  reads the focused button first and restores focus by the row's `Tag` (the setting id) afterwards
+- Secondary text is solved for contrast, not picked from the palette. `theme.Palette[8]` is a text
+  role on Latte and a surface role on the three dark flavours, so a fixed blend fails AA on some
+  palette whichever factor you choose. `OverlayTheme` scans the blend and takes the first amount
+  that reaches 4.5:1
 - The chrome brushes are published into `App.Resources` once and **mutated in place** afterwards.
   Avalonia brushes are observable, so every control already holding one repaints without
   reloading a dictionary

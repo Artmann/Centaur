@@ -23,7 +23,6 @@ sealed class OverlayTheme
         Surface = Brush(theme.Background);
         Foreground = Brush(theme.Foreground);
         Placeholder = Brush(theme.Foreground, 0.5);
-        Dim = Brush(theme.Palette[8]); // Bright black / Surface2 — more readable
         Accent = Brush(theme.Palette[4]); // Blue
         Error = Brush(theme.Palette[1]); // Red
         Selection = Brush(theme.Selection);
@@ -33,7 +32,29 @@ sealed class OverlayTheme
         // page, on a dark one it lightens it. A palette entry would only ever do one of those.
         Card = Blend(theme.Background, theme.Foreground, 0.06);
         Hairline = Blend(theme.Background, theme.Foreground, 0.16);
+
+        // Everything below is solved for a contrast ratio against the card rather than blended
+        // by a fixed amount, because no fixed amount works on all four palettes. A light theme
+        // loses far less contrast per step away from its surface than a dark one gains, so an
+        // amount tuned on Macchiato lands at roughly half the ratio on Latte. Solving states
+        // the intent - "far enough off the card to see" - and lets each palette answer it.
+        Hover = Solve(theme.Background, theme.Foreground, Card.Color, 1.12);
+        Press = Solve(theme.Background, theme.Foreground, Card.Color, 1.28);
+        Chip = Solve(theme.Background, theme.Foreground, Card.Color, ChipContrast);
+        Edge = Solve(theme.Background, theme.Foreground, Card.Color, BoundaryContrast);
+        Dim = Solve(theme.Background, theme.Foreground, Card.Color, MinimumContrast);
     }
+
+    /// <summary>WCAG AA for body text. Everything painted in <see cref="Dim"/> is body text.</summary>
+    public const double MinimumContrast = 4.5;
+
+    /// <summary>What WCAG asks of a non-text element that identifies a control - the outline of
+    /// a box, the ring of an unchosen radio, the focus ring.</summary>
+    public const double BoundaryContrast = 3.0;
+
+    /// <summary>Enough to see a chosen segment as chosen at a glance. Lower than a boundary
+    /// because it is a fill behind text, not the outline of the control.</summary>
+    public const double ChipContrast = 1.5;
 
     /// <summary>Overlay backdrop, dimmed when the overlay was built with an opacity.</summary>
     public SolidColorBrush Background { get; }
@@ -53,6 +74,20 @@ sealed class OverlayTheme
 
     /// <summary>The one-pixel rule around a card and between the rows inside it.</summary>
     public SolidColorBrush Hairline { get; }
+
+    /// <summary>What an interactive surface fills with while the pointer is over it.</summary>
+    public SolidColorBrush Hover { get; }
+
+    /// <summary>What it fills with while it is being pressed.</summary>
+    public SolidColorBrush Press { get; }
+
+    /// <summary>The fill that marks the chosen segment of a segmented control, or the open tab
+    /// in the sidebar. Far enough off the card to be seen without the accent doing the work.</summary>
+    public SolidColorBrush Chip { get; }
+
+    /// <summary>The outline of a control - a box, a stepper, the ring of an unchosen radio.
+    /// Distinct from <see cref="Hairline"/>, which rules a card and carries no meaning.</summary>
+    public SolidColorBrush Edge { get; }
 
     public static SolidColorBrush Brush(uint color, double opacity = 1.0)
     {
@@ -78,6 +113,58 @@ sealed class OverlayTheme
         );
 
         byte Mix(byte a, byte b) => (byte)Math.Round(a + ((b - a) * amount));
+    }
+
+    /// <summary>
+    /// A hover or press fill for a surface that already carries a colour of its own - the filled
+    /// half of a switch. <see cref="Hover"/> and <see cref="Press"/> are measured off the card, so
+    /// on an accent fill they would replace the colour rather than react on top of it.
+    /// </summary>
+    public SolidColorBrush Shade(SolidColorBrush over, double amount) =>
+        Blend(over.Color.ToUInt32(), Foreground.Color.ToUInt32(), amount);
+
+    /// <summary>
+    /// The smallest blend of <paramref name="color"/> towards <paramref name="towards"/> whose
+    /// contrast against <paramref name="against"/> reaches <paramref name="target"/>.
+    ///
+    /// Contrast rises monotonically as the blend moves away from the surface it is measured on,
+    /// so the first amount that passes is also the quietest one that does - which is what these
+    /// colours want: as close to the surface as the requirement allows.
+    /// </summary>
+    static SolidColorBrush Solve(uint color, uint towards, Color against, double target)
+    {
+        for (var step = 10; step < 100; step++)
+        {
+            var candidate = Blend(color, towards, step / 100.0).Color;
+            if (Contrast(candidate, against) >= target)
+            {
+                return new SolidColorBrush(candidate);
+            }
+        }
+
+        return new SolidColorBrush(Color.FromUInt32(towards));
+    }
+
+    /// <summary>The WCAG 2.1 contrast ratio between two opaque colours, 1.0 to 21.0.</summary>
+    public static double Contrast(Color a, Color b)
+    {
+        var (high, low) = (Luminance(a), Luminance(b));
+        if (low > high)
+        {
+            (high, low) = (low, high);
+        }
+
+        return (high + 0.05) / (low + 0.05);
+    }
+
+    /// <summary>WCAG relative luminance: sRGB linearised, then weighted for the eye's response.</summary>
+    static double Luminance(Color c) =>
+        (0.2126 * Linear(c.R)) + (0.7152 * Linear(c.G)) + (0.0722 * Linear(c.B));
+
+    static double Linear(byte channel)
+    {
+        var v = channel / 255.0;
+        return v <= 0.04045 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
     }
 
     /// <summary>

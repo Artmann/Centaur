@@ -114,7 +114,7 @@ sealed class PaneAppearance : IDisposable
                 // and would stall the UI thread for the length of it.
                 _ = MessageBeep(messageBeepDefault);
                 break;
-            case BellMode.Visual:
+            case BellMode.Flash:
                 BellFlashing = true;
                 flashTimer.Stop();
                 flashTimer.Start();

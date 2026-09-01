@@ -21,7 +21,7 @@ public enum BellMode
 {
     Off,
     Sound,
-    Visual,
+    Flash,
 }
 
 /// <summary>

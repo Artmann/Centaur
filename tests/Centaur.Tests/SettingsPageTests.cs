@@ -127,6 +127,128 @@ public class SettingsPageTests : TempDirectory
         Assert.Equal(CursorStyle.Underline, settings.CursorStyle);
     }
 
+    [AvaloniaFact]
+    public void Picking_a_theme_keeps_the_keyboard_on_the_picker()
+    {
+        var (page, settings, window) = CreatePage();
+        page.Show();
+        Dispatcher.UIThread.RunJobs();
+        Click(NavEntry(page, "Appearance"), window);
+
+        var picker = Group(page, "Latte");
+        picker.Focus(NavigationMethod.Directional);
+        Press(picker, Key.End);
+
+        // A theme change is the one edit that rebuilds the page, so the control the keyboard was
+        // standing on is thrown away mid-keystroke. Without putting it back, the next arrow key
+        // walks out of the page and into the window's caption buttons.
+        Assert.Equal("catppuccin-mocha", settings.ThemeId);
+        Assert.Same(Group(page, "Latte"), window.FocusManager?.GetFocusedElement());
+    }
+
+    [AvaloniaFact]
+    public void A_section_with_one_row_drops_the_heading_that_would_repeat_it()
+    {
+        var (page, _, window) = CreatePage();
+        page.Show();
+        Dispatcher.UIThread.RunJobs();
+        Click(NavEntry(page, "Appearance"), window);
+
+        // Theme is the tab's only theme row, so a "Theme" heading would sit directly on top of a
+        // row titled "Theme". Cursor has two rows and so still needs naming.
+        Assert.DoesNotContain("Theme", Headings(page));
+        Assert.Contains("Cursor", Headings(page));
+    }
+
+    [AvaloniaFact]
+    public void Tab_from_the_search_box_reaches_the_tabs()
+    {
+        var (page, _, _) = CreatePage();
+        page.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var next = KeyboardNavigationHandler.GetNext(SearchBox(page), NavigationDirection.Next);
+
+        Assert.Same(NavEntry(page, "General"), next);
+    }
+
+    [AvaloniaFact]
+    public void Arrows_move_a_segmented_choice()
+    {
+        var (page, settings, window) = CreatePage();
+        page.Show();
+        Dispatcher.UIThread.RunJobs();
+        Click(NavEntry(page, "Appearance"), window);
+
+        // The group is the tab stop, not the segments: one press of Right moves off Block.
+        Press(Group(page, "Block"), Key.Right);
+
+        Assert.Equal(CursorStyle.Underline, settings.CursorStyle);
+    }
+
+    [AvaloniaFact]
+    public void Space_flips_a_switch()
+    {
+        var (page, settings, window) = CreatePage();
+        page.Show();
+        Dispatcher.UIThread.RunJobs();
+        Click(NavEntry(page, "Appearance"), window);
+
+        Assert.False(settings.CursorBlink);
+        Press(Switch(page), Key.Space);
+
+        Assert.True(settings.CursorBlink);
+    }
+
+    [AvaloniaFact]
+    public void A_number_can_be_typed_and_is_clamped_to_its_range()
+    {
+        var (page, settings, window) = CreatePage();
+        page.Show();
+        Dispatcher.UIThread.RunJobs();
+        Click(NavEntry(page, "Appearance"), window);
+
+        var field = Stepper(page, " pt");
+        field.Text = "999";
+        Press(field, Key.Enter);
+
+        Assert.Equal(48, settings.FontSize);
+        Assert.Equal("48 pt", field.Text);
+    }
+
+    [AvaloniaFact]
+    public void A_stepper_disables_the_step_that_would_do_nothing()
+    {
+        var (page, _, window) = CreatePage();
+        page.Show();
+        Dispatcher.UIThread.RunJobs();
+        Click(NavEntry(page, "Appearance"), window);
+
+        var field = Stepper(page, " pt");
+        field.Text = "8";
+        Press(field, Key.Enter);
+
+        var (down, up) = Steps(field);
+        Assert.False(down.IsEnabled);
+        Assert.True(up.IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public void A_query_that_matches_nothing_offers_a_way_on()
+    {
+        var (page, _, window) = CreatePage();
+        page.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        SearchBox(page).Text = "qqzzxwvj";
+        Dispatcher.UIThread.RunJobs();
+
+        Click(Chip(page, "Cursor"), window);
+
+        Assert.Equal("Cursor", SearchBox(page).Text);
+        Assert.NotEmpty(Headings(page));
+    }
+
     /// <summary>A page in a shown window, so its controls are laid out and hit-testable.</summary>
     (SettingsPage Page, Settings Settings, Window Window) CreatePage()
     {
@@ -174,24 +296,60 @@ public class SettingsPageTests : TempDirectory
     static string[] Labels(SettingsPage page) =>
         page.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text ?? "").ToArray();
 
-    static Border NavEntry(SettingsPage page, string name) => Chip(page, name);
+    static SettingsButton NavEntry(SettingsPage page, string name) => Chip(page, name);
 
-    static Border Segment(SettingsPage page, string label) => Chip(page, label);
+    static SettingsButton Segment(SettingsPage page, string label) => Chip(page, label);
 
-    /// <summary>The Border whose only child is a label reading <paramref name="text"/>. The nav
-    /// entries and the option segments share that shape, so they are found the same way.</summary>
-    static Border Chip(SettingsPage page, string text)
+    /// <summary>The frame around the segment reading <paramref name="label"/> - the one tab stop
+    /// the whole segmented control gets, and so the thing the arrow keys are sent to.</summary>
+    static SettingsButton Group(SettingsPage page, string label) => Chips(page, label)[0];
+
+    /// <summary>The switch, found by its knob: it is the one affordance on the page whose child
+    /// is a shape rather than a word, which is the whole reason it needs a row title to read.</summary>
+    static SettingsButton Switch(SettingsPage page) =>
+        page.GetVisualDescendants().OfType<SettingsButton>().First(b => b.Child is Border);
+
+    /// <summary>The editable value of the stepper showing <paramref name="unit"/>.</summary>
+    static TextBox Stepper(SettingsPage page, string unit) =>
+        page.GetVisualDescendants()
+            .OfType<TextBox>()
+            .First(b => (b.Text ?? "").EndsWith(unit, StringComparison.Ordinal));
+
+    /// <summary>The decrement and increment flanking a stepper's field.</summary>
+    static (SettingsButton Down, SettingsButton Up) Steps(TextBox field)
+    {
+        var row = field.GetVisualAncestors().OfType<StackPanel>().First();
+        return ((SettingsButton)row.Children[0], (SettingsButton)row.Children[2]);
+    }
+
+    /// <summary>
+    /// The innermost affordance holding a label reading <paramref name="text"/>. Descendants
+    /// rather than the direct child, because a theme segment holds a swatch beside its label;
+    /// innermost, because a segment sits inside the group that frames it and both match.
+    /// </summary>
+    static SettingsButton Chip(SettingsPage page, string text) => Chips(page, text)[^1];
+
+    static SettingsButton[] Chips(SettingsPage page, string text)
     {
         var matches = page.GetVisualDescendants()
-            .OfType<Border>()
-            .Where(b => b.Child is TextBlock label && label.Text == text)
+            .OfType<SettingsButton>()
+            .Where(b =>
+                b.GetVisualDescendants().OfType<TextBlock>().Any(label => label.Text == text)
+            )
             .ToArray();
 
         Assert.NotEmpty(matches);
-        return matches[0];
+        return matches;
     }
 
-    static void Click(Border target, Window window)
+    static void Press(InputElement target, Key key)
+    {
+        target.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = key });
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    static void Click(Control target, Window window)
     {
         var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, isPrimary: true);
         var properties = new PointerPointProperties(

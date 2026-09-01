@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Centaur.Core.Terminal;
 
 namespace Centaur.App;
@@ -31,6 +32,7 @@ sealed class SettingsPage : UserControl
     readonly TextBlock backLabel;
     readonly TextBlock backArrow;
     readonly TextBlock hint;
+    readonly SettingsButton backButton = new();
     readonly Border sidebar;
 
     OverlayTheme colors;
@@ -48,6 +50,7 @@ sealed class SettingsPage : UserControl
         hint = OverlayControls.CreateUiLabel("Esc", 11);
 
         searchBox = CreateSearchBox();
+        SettingsControls.FocusOutline(searchBox, () => colors);
 
         nav = new SettingsNav(colors);
         nav.TabSelected += _ => Rebuild();
@@ -128,22 +131,13 @@ sealed class SettingsPage : UserControl
         back.Children.Add(hint);
         back.Children.Add(arrow);
 
-        var button = new Border
-        {
-            Child = back,
-            Padding = new Thickness(6, 6),
-            CornerRadius = new CornerRadius(6),
-            Background = Brushes.Transparent,
-            Cursor = new Cursor(StandardCursorType.Hand),
-        };
-        button.PointerPressed += (_, e) =>
-        {
-            e.Handled = true;
-            CloseRequested?.Invoke();
-        };
+        backButton.Child = back;
+        backButton.Padding = new Thickness(6, 6);
+        backButton.CornerRadius = new CornerRadius(6);
+        backButton.Activated += () => CloseRequested?.Invoke();
 
         var panel = new StackPanel();
-        panel.Children.Add(button);
+        panel.Children.Add(backButton);
         panel.Children.Add(searchBox);
         panel.Children.Add(nav.View);
         return panel;
@@ -152,20 +146,22 @@ sealed class SettingsPage : UserControl
     DockPanel BuildLayout()
     {
         // Capped rather than left to fill: a row whose description runs the full width of a
-        // maximised window is a paragraph, not a caption. Stretched to that cap rather than
-        // centred on its content, so the column does not shift sideways when a tab whose
-        // descriptions happen to be shorter is opened.
-        var column = new StackPanel
-        {
-            MaxWidth = 720,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
+        // maximised window is a paragraph, not a caption.
+        var column = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left };
         column.Children.Add(title);
         column.Children.Add(content);
 
+        var host = new Border { Child = column, Padding = new Thickness(32, 26, 32, 36) };
+
+        // Measured rather than expressed as Stretch plus MaxWidth, which centres the column on a
+        // wide screen: the page's content would drift away from the sidebar it belongs to, and
+        // the heading would stop lining up with anything. Sizing the column explicitly holds it
+        // against the left edge and still stops it growing into a paragraph.
+        host.SizeChanged += (_, e) => column.Width = Math.Clamp(e.NewSize.Width - 64, 0, 720);
+
         var scroller = new ScrollViewer
         {
-            Content = new Border { Child = column, Padding = new Thickness(32, 26, 32, 36) },
+            Content = host,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
 
@@ -183,6 +179,11 @@ sealed class SettingsPage : UserControl
             return;
         }
 
+        // Read now, while the control the user is standing on still exists. A theme picked from
+        // the keyboard used to leave focus nowhere: the rebuild threw the picker away and the
+        // next arrow key walked into the window's caption buttons.
+        var focused = FocusedButton();
+
         // Posted rather than run inline: the change arrives from inside a segment's own pointer
         // handler, and that segment is about to be replaced by the rebuild.
         Dispatcher.UIThread.Post(() =>
@@ -191,7 +192,35 @@ sealed class SettingsPage : UserControl
             nav.ApplyTheme(colors);
             ApplyTheme();
             Rebuild();
+
+            if (focused is not null)
+            {
+                // Put back the way it was found, so a theme clicked with the mouse does not come
+                // back wearing a focus ring the user never asked for.
+                FocusSetting(
+                    id,
+                    focused.Ringed ? NavigationMethod.Directional : NavigationMethod.Pointer
+                );
+            }
         });
+    }
+
+    /// <summary>The page's own affordance holding focus, if one is.</summary>
+    SettingsButton? FocusedButton() =>
+        TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() as SettingsButton;
+
+    /// <summary>Puts the keyboard back on a setting's control after the page rebuilt under it.</summary>
+    void FocusSetting(string id, NavigationMethod method)
+    {
+        var row = content
+            .GetVisualDescendants()
+            .OfType<Border>()
+            .FirstOrDefault(candidate => (candidate.Tag as string) == id);
+
+        row?.GetVisualDescendants()
+            .OfType<SettingsButton>()
+            .FirstOrDefault(button => button.Focusable)
+            ?.Focus(method);
     }
 
     void ApplyTheme()
@@ -203,6 +232,8 @@ sealed class SettingsPage : UserControl
         hint.Foreground = colors.Dim;
         sidebar.Background = colors.Card;
         sidebar.BorderBrush = colors.Hairline;
+        backButton.FocusBrush = colors.Accent;
+        backButton.SetFill(Brushes.Transparent, colors.Hover, colors.Press);
         SettingsControls.StyleBox(colors, searchBox);
     }
 
@@ -216,7 +247,7 @@ sealed class SettingsPage : UserControl
         var query = searchBox.Text ?? "";
         var searching = query.Trim().Length > 0;
         nav.SetSearching(searching);
-        title.Text = searching ? "Search results" : nav.Selected.ToString();
+        title.Text = searching ? "Search results" : nav.Selected.Label();
 
         // A query searches every tab. Restricting it to the open one would hide the match the
         // user is looking for behind a tab they have no reason to suspect.
@@ -251,25 +282,65 @@ sealed class SettingsPage : UserControl
         bool searching
     )
     {
-        // While searching the results span both tabs, so the heading has to say which one each
-        // group came from.
-        var heading = searching ? $"{group.Key.Tab} · {group.Key.Section}" : group.Key.Section;
-        content.Children.Add(SettingsControls.SectionHeader(heading, colors));
-
         var rows = group
             .Select(setting =>
                 (Control)SettingsControls.Row(setting, setting.CreateEditor(context), colors)
             )
             .ToArray();
 
+        // A heading above a lone row says the row's own title twice - "Theme" over "Theme". While
+        // searching it stays, because there it carries the tab the match came from, which nothing
+        // else on the row does.
+        if (searching)
+        {
+            var heading = $"{group.Key.Tab.Label()} · {group.Key.Section}";
+            content.Children.Add(SettingsControls.SectionHeader(heading, colors));
+        }
+        else if (rows.Length > 1)
+        {
+            content.Children.Add(SettingsControls.SectionHeader(group.Key.Section, colors));
+        }
+
         content.Children.Add(SettingsControls.Card(rows, colors));
     }
 
-    TextBlock EmptyMessage(string query)
+    /// <summary>
+    /// What a query that found nothing offers instead. A dead end here is a dead end on the whole
+    /// page: the search spans every tab, so there is nowhere else for the user to go looking.
+    /// The sections are the shortest honest list of what the page does hold.
+    /// </summary>
+    StackPanel EmptyMessage(string query)
     {
         var empty = OverlayControls.CreateUiLabel($"No settings match “{query}”.", 13);
-        empty.Foreground = colors.Dim;
-        empty.Margin = new Thickness(2, 4, 0, 0);
-        return empty;
+        empty.Foreground = colors.Foreground;
+
+        var lead = OverlayControls.CreateUiLabel("The page covers:", 12);
+        lead.Foreground = colors.Dim;
+        lead.Margin = new Thickness(0, 14, 0, 8);
+
+        var sections = new WrapPanel();
+        foreach (var section in SettingsRegistry.All.Select(s => s.Section).Distinct())
+        {
+            var chip = SettingsControls.Suggestion(colors, section, () => Search(section));
+
+            // Spaced by the chips themselves: WrapPanel has no gap of its own, and a Spacing on
+            // the panel would not separate the wrapped lines from each other anyway.
+            chip.Margin = new Thickness(0, 0, 8, 8);
+            sections.Children.Add(chip);
+        }
+
+        var panel = new StackPanel { Margin = new Thickness(2, 4, 0, 0) };
+        panel.Children.Add(empty);
+        panel.Children.Add(lead);
+        panel.Children.Add(sections);
+        return panel;
+    }
+
+    /// <summary>Puts a term in the search box, as if the user had typed it.</summary>
+    void Search(string query)
+    {
+        searchBox.Text = query;
+        searchBox.CaretIndex = query.Length;
+        searchBox.Focus();
     }
 }

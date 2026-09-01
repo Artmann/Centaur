@@ -25,8 +25,14 @@ everything automatically.
 - Typing in search filters rows across *both* tabs, and each result group is headed
   `TAB · SECTION` so the tab a match came from is visible. The sidebar highlight clears while a
   search is active, because the results are no longer one tab's. A query with no matches shows
-  `No settings match “…”.`
+  `No settings match “…”.` followed by one chip per section, so a dead query still offers a
+  way on.
 - Every edit saves and applies immediately. There is no apply or cancel step.
+- Every affordance is keyboard-operable. `Tab` walks the sidebar, the rows and the steppers;
+  arrows move within a segmented control, a radio group or a stepper; `Space` and `Enter`
+  activate; and whatever the keyboard is standing on wears a visible ring. A segmented control is
+  one tab stop whose arrows move the choice, which is what the platform control it stands in for
+  does.
 - Closing the page returns focus to the pane that had it.
 - While the page is open it swallows `Ctrl+T`, `Ctrl+W` and `Ctrl+1..9`, so a stray shortcut
   cannot close a pane behind it.
@@ -69,7 +75,9 @@ made every row match everything.
 | `Settings/SettingsPage.cs` | Chrome: header, search box, sidebar host, scrolling content, `Show`/`Hide`, `ApplyTheme` |
 | `Settings/SettingsNav.cs` | Sidebar tab list, selection visual, `TabSelected` |
 | `Settings/SettingsSearch.cs` | `FuzzyMatcher` over descriptors; filtered and ranked ids |
-| `Settings/SettingsControls.cs` | Section, card and row factories, plus the segmented control, stepper and switch |
+| `Settings/SettingsControls.cs` | Section, card and row factories, plus the segmented control and switch |
+| `Settings/SettingsButton.cs` | The one focusable, hoverable surface every affordance on the page is built from |
+| `Settings/NumberEditor.cs` | The stepper: a typed, clamped, unit-carrying number with a step at each end |
 | `Settings/StartDirectoryEditor.cs` | The old `StartDirectorySection`, reshaped as one descriptor's bespoke editor |
 
 `SettingsOverlay.cs` and `StartDirectorySection.cs` are deleted, and `TerminalOverlays` loses its
@@ -188,3 +196,25 @@ rows and headed by a small dim sentence-case label, which is the shape desktop s
 settled on. `OverlayTheme.Card` and `Hairline` are blended from the background towards the
 foreground rather than picked from the palette, so the same formula lightens the card on a dark
 theme and darkens it on a light one.
+
+**One affordance, not twelve call sites.** Every control on the first cut was a bare `Border` with
+a `PointerPressed` handler. A `Border` is not focusable in Avalonia, so none of them had a tab
+stop, an activation key or a focus visual — twelve settings of which two could be reached without
+a mouse. `SettingsButton` puts focus, hover, press and key handling in one place, which is what
+keeps the next control from being built the same way. `Border.Render` is sealed, so the focus ring
+cannot be drawn over the border: it *is* the border, permanently one pixel thick and transparent
+at rest, with only its colour changing, so focusing something never shifts the layout by a pixel.
+
+**A theme change rebuilds the page under the keyboard.** Picking a theme replaces every control on
+the page, including the one the user is standing on — driving it revealed the next arrow key
+landing on the window's *minimise button*. The page now reads the focused control before the
+rebuild and puts focus back on the same setting afterwards, re-ringing it only if the keyboard,
+rather than the pointer, was what put it there.
+
+**Dim text failed AA on three of the four palettes.** The secondary text took
+`theme.Palette[8]`, which is a *text* role on Latte (Subtext0) but a *surface* role on Frappé,
+Macchiato and Mocha (Surface2) — 2.9:1 against the page on Mocha. No single blend factor fixes
+all four (4.5:1 needs 0.86 on Latte and 0.62 on Mocha), so `OverlayTheme` scans the blend towards
+the foreground and takes the first amount that passes. Contrast is monotonic in that amount, so
+the first passing one is the minimum passing one: the text is exactly as quiet as it can be while
+still being readable.

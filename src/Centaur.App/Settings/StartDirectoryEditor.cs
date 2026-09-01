@@ -20,7 +20,8 @@ sealed class StartDirectoryEditor
 {
     readonly Settings settings;
     readonly OverlayTheme colors;
-    readonly Border[] optionRows;
+    readonly StartDirectoryMode[] modes = Enum.GetValues<StartDirectoryMode>();
+    readonly SettingsButton[] optionRows;
     readonly TextBox folderTextBox;
     readonly TextBlock validationText;
     readonly Panel folderInputPanel;
@@ -38,6 +39,7 @@ sealed class StartDirectoryEditor
         folderTextBox.Text = settings.SpecificFolder;
         folderTextBox.TextChanged += OnFolderTextChanged;
         SettingsControls.StyleBox(colors, folderTextBox);
+        SettingsControls.FocusOutline(folderTextBox, () => colors);
 
         validationText = OverlayControls.CreateUiLabel("", 12);
         validationText.Foreground = colors.Error;
@@ -62,7 +64,7 @@ sealed class StartDirectoryEditor
     public Control View => panel;
 
     /// <summary>One row per <see cref="StartDirectoryMode"/>, in the order they are offered.</summary>
-    Border[] CreateOptionRows() =>
+    SettingsButton[] CreateOptionRows() =>
         [
             CreateOptionRow(
                 "Last used folder",
@@ -93,7 +95,7 @@ sealed class StartDirectoryEditor
         return input;
     }
 
-    Border CreateOptionRow(string label, string description, StartDirectoryMode mode)
+    SettingsButton CreateOptionRow(string label, string description, StartDirectoryMode mode)
     {
         var labelText = OverlayControls.CreateUiLabel(label, 13);
         labelText.Foreground = colors.Foreground;
@@ -110,22 +112,35 @@ sealed class StartDirectoryEditor
         content.Children.Add(CreateRadio());
         content.Children.Add(text);
 
-        var border = new Border
+        var row = new SettingsButton
         {
             Padding = new Thickness(8, 7),
             CornerRadius = new CornerRadius(6),
-            Cursor = new Cursor(StandardCursorType.Hand),
             Child = content,
+            FocusBrush = colors.Accent,
             Tag = mode,
+
+            // The three rows are one radio group and so one tab stop: the stop sits on the
+            // chosen mode and the arrows move between them. <see cref="PaintRow"/> moves it.
+            Focusable = false,
         };
 
-        border.PointerPressed += (_, e) =>
+        row.Activated += () => SelectOption(mode);
+        row.Moved += direction => SelectOption(Neighbour(mode, direction));
+        return row;
+    }
+
+    /// <summary>The mode an arrow key moves to, clamped at the ends of the list.</summary>
+    StartDirectoryMode Neighbour(StartDirectoryMode from, int direction)
+    {
+        var next = direction switch
         {
-            e.Handled = true;
-            SelectOption(mode);
+            int.MinValue => 0,
+            int.MaxValue => modes.Length - 1,
+            _ => Array.IndexOf(modes, from) + direction,
         };
 
-        return border;
+        return modes[Math.Clamp(next, 0, modes.Length - 1)];
     }
 
     /// <summary>
@@ -153,6 +168,11 @@ sealed class StartDirectoryEditor
 
     void SelectOption(StartDirectoryMode mode)
     {
+        if (mode == settings.StartDirectory)
+        {
+            return;
+        }
+
         settings.StartDirectory = mode;
         settings.Save(SettingIds.StartDirectory);
         UpdateSelectionVisual();
@@ -163,8 +183,16 @@ sealed class StartDirectoryEditor
             // The box has only just been made visible; focusing it synchronously does not
             // stick, so the focus waits for the layout pass that reveals it.
             Dispatcher.UIThread.Post(() => folderTextBox.Focus(), DispatcherPriority.Input);
+            return;
         }
+
+        // The stop moved with the choice, so the keyboard follows it rather than being left on
+        // a row that is no longer focusable.
+        Row(mode)?.Focus(NavigationMethod.Directional);
     }
+
+    SettingsButton? Row(StartDirectoryMode mode) =>
+        Array.Find(optionRows, row => (StartDirectoryMode)row.Tag! == mode);
 
     void UpdateSelectionVisual()
     {
@@ -177,14 +205,19 @@ sealed class StartDirectoryEditor
     }
 
     /// <summary>Applies the selected or unselected look to one option row in place.</summary>
-    void PaintRow(Border row, bool isSelected)
+    void PaintRow(SettingsButton row, bool isSelected)
     {
+        row.SetFill(Brushes.Transparent, colors.Hover, colors.Press);
+        row.Focusable = isSelected;
+
         if (row.Child is not StackPanel content || content.Children[0] is not Border radio)
         {
             return;
         }
 
-        radio.BorderBrush = isSelected ? colors.Accent : colors.Dim;
+        // The ring is a control boundary, not text, so it takes the boundary colour rather than
+        // the body one - on Latte the dim it used to take was a shade off the card.
+        radio.BorderBrush = isSelected ? colors.Accent : colors.Edge;
 
         if (radio.Child is Border dot)
         {

@@ -1,4 +1,3 @@
-using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -7,17 +6,13 @@ using Avalonia.Media;
 
 namespace Centaur.App;
 
-/// <summary>The bounds a <see cref="SettingsControls.Number"/> editor steps within, and the
-/// precision it shows and rounds to.</summary>
-sealed record NumberRange(double Minimum, double Maximum, double Step, int Decimals);
-
 /// <summary>
 /// The controls the settings page is built from.
 ///
-/// They are hand-rolled out of <see cref="Border"/> and <see cref="TextBox"/> rather than taken
-/// from Fluent, for the reason <see cref="OverlayTheme.StyleTextBox"/> documents: Fluent styles
-/// its controls through theme resources rather than properties, so a stock ComboBox, Slider or
-/// ToggleSwitch would need a dozen resource keys stuffed into it per state and would still not
+/// They are hand-rolled out of <see cref="SettingsButton"/> and <see cref="TextBox"/> rather than
+/// taken from Fluent, for the reason <see cref="OverlayTheme.StyleTextBox"/> documents: Fluent
+/// styles its controls through theme resources rather than properties, so a stock ComboBox, Slider
+/// or ToggleSwitch would need a dozen resource keys stuffed into it per state and would still not
 /// theme from the terminal's palette. A segment, a stepper and a switch are less code than that.
 ///
 /// The shape they make is the one every desktop settings page makes: a dim label naming a
@@ -37,7 +32,10 @@ static class SettingsControls
     {
         var header = OverlayControls.CreateUiLabel(text, 12);
         header.Foreground = colors.Dim;
-        header.Margin = new Thickness(2, 2, 0, 8);
+
+        // Close to the card it names and far from the one above it, so the gap does the grouping
+        // rather than the label having to be read to work out what it belongs to.
+        header.Margin = new Thickness(2, 0, 0, 6);
         header.Tag = SectionHeaderTag;
         return header;
     }
@@ -67,7 +65,7 @@ static class SettingsControls
             BorderBrush = colors.Hairline,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
-            Margin = new Thickness(0, 0, 0, 20),
+            Margin = new Thickness(0, 0, 0, 28),
         };
     }
 
@@ -90,6 +88,10 @@ static class SettingsControls
         {
             Padding = new Thickness(14, 11),
             Child = setting.FullWidth ? Stacked(text, editor) : SideBySide(text, editor),
+
+            // Tagged so the page can find this row again after rebuilding itself, which is how
+            // the keyboard gets put back on the control it was standing on.
+            Tag = setting.Id,
         };
     }
 
@@ -97,34 +99,37 @@ static class SettingsControls
     /// A segmented control, one segment per choice, with the current one filled. Stands in for
     /// both a dropdown and a checkbox: the options are few and naming them all beats hiding them
     /// behind a popup on a page whose whole point is discoverability.
+    ///
+    /// The group is one tab stop and its arrow keys move the choice, which is what a radio group
+    /// does. A stop per segment would make Tab walk four times through the theme picker alone.
     /// </summary>
+    /// <param name="swatch">An optional mark drawn in front of each label, for choices a word
+    /// alone does not distinguish - the theme names.</param>
     public static Control Choice<T>(
         OverlayTheme colors,
         IReadOnlyList<(T Value, string Label)> options,
         T current,
-        Action<T> select
+        Action<T> select,
+        Func<T, Control>? swatch = null
     )
         where T : notnull
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal };
-        var segments = new List<Border>(options.Count);
+        var segments = new List<SettingsButton>(options.Count);
+        var group = Group(colors, row);
         var selected = current;
 
         foreach (var (value, label) in options)
         {
-            var segment = CreateSegment(label, value);
-            segment.PointerPressed += (_, e) =>
-            {
-                e.Handled = true;
-                Choose(value);
-            };
-
+            var segment = CreateSegment(label, value, swatch?.Invoke(value));
+            segment.Activated += () => Choose(value);
             segments.Add(segment);
             row.Children.Add(segment);
         }
 
+        group.Moved += direction => Choose(Step(options, selected, direction));
         PaintSegments(colors, segments, selected);
-        return Frame(colors, row);
+        return group;
 
         void Choose(T chosen)
         {
@@ -153,79 +158,34 @@ static class SettingsControls
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        var track = new Border
+        var track = new SettingsButton
         {
             Child = knob,
             Width = 38,
             Height = 22,
             CornerRadius = new CornerRadius(11),
-            BorderThickness = new Thickness(1),
             Padding = new Thickness(3, 0),
-            Cursor = new Cursor(StandardCursorType.Hand),
         };
 
-        track.PointerPressed += (_, e) =>
-        {
-            e.Handled = true;
-            current = !current;
-            PaintToggle(colors, track, knob, current);
-            commit(current);
-        };
+        track.Activated += () => Set(!current);
+
+        // The arrows set the state rather than flip it, so holding one down does not oscillate;
+        // Home and End arrive as the extremes and land on off and on respectively.
+        track.Moved += direction => Set(direction > 0);
 
         PaintToggle(colors, track, knob, current);
         return track;
-    }
 
-    /// <summary>The switch's two states: filled with the knob to the right when on, outlined
-    /// with the knob to the left when off.</summary>
-    static void PaintToggle(OverlayTheme colors, Border track, Border knob, bool on)
-    {
-        track.Background = on ? colors.Accent : Brushes.Transparent;
-        track.BorderBrush = on ? colors.Accent : colors.Dim;
-        knob.Background = on ? colors.Surface : colors.Dim;
-        knob.HorizontalAlignment = on ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-    }
-
-    /// <summary>
-    /// A number with a decrement and an increment beside it. Stepped rather than dragged on
-    /// purpose: every commit here rebuilds each pane's renderer, and a slider would do that
-    /// once per pixel of travel.
-    /// </summary>
-    public static Control Number(
-        OverlayTheme colors,
-        double current,
-        NumberRange range,
-        Action<double> commit
-    )
-    {
-        var value = OverlayControls.CreateUiLabel(Format(current, range.Decimals), 12);
-        value.Foreground = colors.Foreground;
-        value.HorizontalAlignment = HorizontalAlignment.Center;
-        value.VerticalAlignment = VerticalAlignment.Center;
-
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
-        row.Children.Add(CreateStep(colors, "−", () => Nudge(-range.Step)));
-        row.Children.Add(CreateDisplay(colors, value));
-        row.Children.Add(CreateStep(colors, "+", () => Nudge(range.Step)));
-        return Frame(colors, row);
-
-        void Nudge(double delta)
+        void Set(bool value)
         {
-            // Floating-point steps drift; rounding to the displayed precision keeps
-            // 1.2 + 0.05 from becoming 1.2500000000000002 in the settings file.
-            var next = Math.Round(
-                Math.Clamp(current + delta, range.Minimum, range.Maximum),
-                range.Decimals
-            );
-
-            if (Math.Abs(next - current) < double.Epsilon)
+            if (value == current)
             {
                 return;
             }
 
-            current = next;
-            value.Text = Format(next, range.Decimals);
-            commit(next);
+            current = value;
+            PaintToggle(colors, track, knob, current);
+            commit(current);
         }
     }
 
@@ -234,14 +194,36 @@ static class SettingsControls
     public static TextBox Text(OverlayTheme colors, string current, Action<string> commit)
     {
         var box = OverlayControls.CreateTextBox(new Thickness(1));
-        box.Width = 220;
         box.FontSize = 12;
-        box.Padding = new Thickness(8, 4);
+        box.Padding = new Thickness(8, 5);
         box.CornerRadius = new CornerRadius(6);
         box.Text = current;
         StyleBox(colors, box);
+        FocusOutline(box, () => colors);
         box.TextChanged += (_, _) => commit(box.Text ?? "");
         return box;
+    }
+
+    /// <summary>
+    /// A section name the user can click to search for it, offered where a query found nothing.
+    /// </summary>
+    public static Control Suggestion(OverlayTheme colors, string label, Action activate)
+    {
+        var text = OverlayControls.CreateUiLabel(label, 12);
+        text.Foreground = colors.Foreground;
+
+        var chip = new SettingsButton
+        {
+            Child = text,
+            Padding = new Thickness(10, 4),
+            CornerRadius = new CornerRadius(6),
+            Outline = colors.Edge,
+            FocusBrush = colors.Accent,
+        };
+
+        chip.SetFill(Brushes.Transparent, colors.Hover, colors.Press);
+        chip.Activated += activate;
+        return chip;
     }
 
     /// <summary>
@@ -250,30 +232,86 @@ static class SettingsControls
     /// frame, so the state resources are painted back in - without them Fluent's focused state
     /// wins and the outline vanishes the moment the box is clicked into.
     /// </summary>
-    public static void StyleBox(OverlayTheme colors, TextBox box)
+    /// <param name="border">Overrides the outline, for a box that sits inside a frame of its own
+    /// and would otherwise draw a second one.</param>
+    public static void StyleBox(OverlayTheme colors, TextBox box, IBrush? border = null)
     {
         colors.StyleTextBox(box);
         OverlayTheme.StyleTextBox(
             box,
             Brushes.Transparent,
             colors.Foreground,
-            colors.Hairline,
+            border ?? colors.Edge,
             colors.Accent
         );
     }
 
+    /// <summary>
+    /// Marks a box as focused. Every border state above resolves to the same colour, and
+    /// <see cref="OverlayControls.CreateTextBox"/> drops the stock adorner, so without this a box
+    /// holding focus looks exactly like one that does not.
+    ///
+    /// Subscribed once per box and reading the theme through <paramref name="colors"/> rather than
+    /// capturing it, because the page keeps its search box across a theme change and re-styles it
+    /// in place.
+    /// </summary>
+    public static void FocusOutline(TextBox box, Func<OverlayTheme> colors)
+    {
+        box.GotFocus += (_, _) => box.BorderBrush = colors().Accent;
+        box.LostFocus += (_, _) => box.BorderBrush = colors().Edge;
+    }
+
     /// <summary>The outline the segmented control and the stepper share, so a row holding one
     /// of each reads as one family of control.</summary>
-    static Border Frame(OverlayTheme colors, Control child) =>
+    public static Border Frame(OverlayTheme colors, Control child) =>
         new()
         {
             Child = child,
             Background = Brushes.Transparent,
-            BorderBrush = colors.Hairline,
+            BorderBrush = colors.Edge,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(2),
         };
+
+    /// <summary>The same outline, but as the single tab stop for the choices inside it.</summary>
+    static SettingsButton Group(OverlayTheme colors, Control child)
+    {
+        var group = new SettingsButton
+        {
+            Child = child,
+            Outline = colors.Edge,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(2),
+            FocusBrush = colors.Accent,
+
+            // The segments inside carry the hand; the frame between them is not itself a target.
+            Cursor = Cursor.Default,
+        };
+
+        group.SetFill(Brushes.Transparent);
+        return group;
+    }
+
+    /// <summary>The switch's two states: filled with the knob to the right when on, outlined
+    /// with the knob to the left when off.</summary>
+    static void PaintToggle(OverlayTheme colors, SettingsButton track, Border knob, bool on)
+    {
+        // An on switch still reacts to the pointer - clicking it turns it off - but its fill is
+        // the accent, which the card-derived hover and press would paint over rather than tint.
+        track.SetFill(
+            on ? colors.Accent : Brushes.Transparent,
+            on ? colors.Shade(colors.Accent, 0.14) : colors.Hover,
+            on ? colors.Shade(colors.Accent, 0.28) : colors.Press
+        );
+
+        track.Outline = on ? colors.Accent : colors.Edge;
+        knob.Background = on ? colors.Surface : colors.Edge;
+        knob.HorizontalAlignment = on ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+
+        // The ring cannot be the accent while the accent is the fill underneath it.
+        track.FocusBrush = on ? colors.Foreground : colors.Accent;
+    }
 
     static StackPanel Stacked(Control text, Control editor)
     {
@@ -300,72 +338,82 @@ static class SettingsControls
         return grid;
     }
 
-    static Border CreateSegment<T>(string label, T value)
-        where T : notnull =>
-        new()
+    static SettingsButton CreateSegment<T>(string label, T value, Control? swatch)
+        where T : notnull
+    {
+        var text = OverlayControls.CreateUiLabel(label, 12);
+
+        var segment = new SettingsButton
         {
-            Child = OverlayControls.CreateUiLabel(label, 12),
             Padding = new Thickness(10, 3),
             CornerRadius = new CornerRadius(4),
-            BorderThickness = new Thickness(1),
-            Cursor = new Cursor(StandardCursorType.Hand),
             Tag = value,
+
+            // The group around it is the tab stop, and its arrows move between the segments.
+            Focusable = false,
         };
 
-    static void PaintSegments<T>(OverlayTheme colors, List<Border> segments, T selected)
+        if (swatch is null)
+        {
+            segment.Child = text;
+            return segment;
+        }
+
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        content.Children.Add(swatch);
+        content.Children.Add(text);
+        segment.Child = content;
+        return segment;
+    }
+
+    static void PaintSegments<T>(OverlayTheme colors, List<SettingsButton> segments, T selected)
         where T : notnull
     {
         foreach (var segment in segments)
         {
             var isSelected = EqualityComparer<T>.Default.Equals((T)segment.Tag!, selected);
-            segment.Background = isSelected ? colors.Selection : Brushes.Transparent;
 
-            // Outlined as well as filled: on a light palette the selection tint alone is barely
-            // a shade off the card behind it, and the chosen segment stops reading as chosen.
-            segment.BorderBrush = isSelected ? colors.Hairline : Brushes.Transparent;
+            // The chosen one takes no hover or press fill: clicking it again changes nothing, and
+            // a surface that lights up under the pointer is promising that it would.
+            segment.SetFill(
+                isSelected ? colors.Chip : Brushes.Transparent,
+                isSelected ? null : colors.Hover,
+                isSelected ? null : colors.Press
+            );
 
-            if (segment.Child is TextBlock label)
-            {
-                label.Foreground = isSelected ? colors.Foreground : colors.Dim;
-            }
+            // Outlined as well as filled: on a light palette the fill alone is barely a shade off
+            // the card behind it, and the chosen segment stops reading as chosen.
+            segment.Outline = isSelected ? colors.Edge : Brushes.Transparent;
+            SegmentLabel(segment).Foreground = isSelected ? colors.Foreground : colors.Dim;
         }
     }
 
-    static Border CreateDisplay(OverlayTheme colors, TextBlock value) =>
-        new()
-        {
-            Child = value,
-            MinWidth = 52,
-            Padding = new Thickness(6, 3),
-            BorderBrush = colors.Hairline,
-            BorderThickness = new Thickness(1, 0),
-        };
+    /// <summary>The segment's label, whether or not a swatch sits in front of it.</summary>
+    static TextBlock SegmentLabel(Border segment) =>
+        segment.Child as TextBlock ?? (TextBlock)((StackPanel)segment.Child!).Children[^1];
 
-    static Border CreateStep(OverlayTheme colors, string glyph, Action nudge)
+    /// <summary>The choice an arrow key moves to: one along, clamped at the ends rather than
+    /// wrapped, so holding a key does not cycle past the end and back to where it started.</summary>
+    static T Step<T>(IReadOnlyList<(T Value, string Label)> options, T current, int direction)
+        where T : notnull
     {
-        var label = OverlayControls.CreateUiLabel(glyph, 13);
-        label.Foreground = colors.Foreground;
-        label.HorizontalAlignment = HorizontalAlignment.Center;
-        label.VerticalAlignment = VerticalAlignment.Center;
-
-        var button = new Border
+        var index = 0;
+        for (var i = 0; i < options.Count; i++)
         {
-            Child = label,
-            Width = 24,
-            Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(4),
-            Cursor = new Cursor(StandardCursorType.Hand),
+            if (EqualityComparer<T>.Default.Equals(options[i].Value, current))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        var next = direction switch
+        {
+            int.MinValue => 0,
+            int.MaxValue => options.Count - 1,
+            _ => index + direction,
         };
 
-        button.PointerPressed += (_, e) =>
-        {
-            e.Handled = true;
-            nudge();
-        };
-
-        return button;
+        return options[Math.Clamp(next, 0, options.Count - 1)].Value;
     }
-
-    static string Format(double value, int decimals) =>
-        value.ToString("F" + decimals, CultureInfo.CurrentCulture);
 }
