@@ -46,13 +46,30 @@ sealed class SgrPen
         [59] = c => c with { underlineColor = 0 },
     }.ToFrozenDictionary();
 
-    readonly TerminalTheme theme;
+    TerminalTheme theme;
     Cell template;
 
     public SgrPen(TerminalTheme theme)
     {
         this.theme = theme;
         template = new Cell(' ', theme.Foreground, theme.Background);
+    }
+
+    /// <summary>
+    /// Swaps the theme the colour SGR codes resolve against. The pen's current colours follow
+    /// only if they are still the old defaults - a program that selected an explicit colour
+    /// keeps it across a theme change.
+    /// </summary>
+    internal void ApplyTheme(TerminalTheme previous, TerminalTheme next)
+    {
+        theme = next;
+        template = template with
+        {
+            foreground =
+                template.foreground == previous.Foreground ? next.Foreground : template.foreground,
+            background =
+                template.background == previous.Background ? next.Background : template.background,
+        };
     }
 
     /// <summary>Pen colours. DECSC/DECRC go through <see cref="Snapshot"/> instead, which

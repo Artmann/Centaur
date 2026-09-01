@@ -16,6 +16,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The settings registry, its search and the page are internal to the app; the tests
+         drive them directly rather than through a window. -->
+    <InternalsVisibleTo Include="Centaur.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Only the window icon is embedded as a resource. Assets/centaur.png is the source
          artwork the other two are derived from and has no business in the binary. -->
     <AvaloniaResource Include="Assets\centaur-256.png" />

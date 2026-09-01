@@ -88,6 +88,57 @@ The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage compon
 - `TerminalControl` resolves the host via `App.Services.GetRequiredService<ExtensionHost>()`
 - `ActivateAsync` is called on attach, `DisposeAsync` on detach
 - Provider interfaces that need framework types (e.g., SkiaSharp) live in the project that owns those types (e.g., `IRenderOverlay` in Centaur.Rendering), not in Core
+- **A registration for a derived interface does not satisfy the base one.** `ExtensionHost` is
+  built from `IEnumerable<IProvider>`, and `AddSingleton<IThemeProvider, CatppuccinThemeProvider>()`
+  does not appear in it even though `IThemeProvider : IProvider`. Register the concrete type once
+  and forward both interfaces to it
+- **The container does not detect a cycle that runs through factory lambdas.** `ServiceProvider`
+  only sees cycles through constructor-injected call sites; a cycle closed by two
+  `AddSingleton(sp => ...)` factories re-enters its own cache for the same key and deadlocks
+  silently — the app starts, stays alive, and never shows a window, with nothing on stderr.
+  Break such a cycle with a `Func<T>` resolved on demand, not a direct dependency.
+  `AppServiceGraphTests` resolves the graph on a background thread with a deadline so this fails
+  a test instead of hanging a run
+
+## Settings
+
+- `Settings` (`Centaur.Core.Terminal`) is a flat bag of properties persisted to `settings.json`
+  through `ConfigPaths`, clamped on load, raising `Changed(id)` on every write. There is no apply
+  or cancel step anywhere in the settings UI
+- The settings page renders from `SettingsRegistry.All`, a list of `SettingDescriptor` records.
+  **Adding a setting is one property on `Settings` plus one descriptor** — never a new layout
+  method. Adding a tab is one `SettingsTab` enum value. Search picks up both for free
+- Search fuzzy-matches `Title`, `Keywords` and `Section` only. `FuzzyMatcher` is
+  subsequence-based, so matching the prose `Description` makes almost every row match almost
+  every query
+- **Fluent styles controls through theme resources, not properties.** Setting `Background` or
+  `Foreground` on a `TextBox`, `ComboBox`, `Slider` or `ToggleSwitch` leaves stock Fluent chrome
+  bleeding through on hover and focus — `OverlayTheme.StyleTextBox` exists to stuff 21 resource
+  keys onto each box. The settings page uses a hand-rolled segmented control, numeric stepper
+  and switch (each a `Border` plus a `TextBlock`) rather than pay that cost three more times
+- The settings page is a **page, not an overlay**: its labels use `OverlayControls.UiFont` via
+  `CreateUiLabel`, because the terminal's monospace makes an application surface read as terminal
+  output. Only the two boxes that hold code - the shell command and the folder path - stay mono
+- `OverlayTheme.Card` and `Hairline` are blended from the background **towards the foreground**
+  rather than taken from the palette, so one formula lightens the card on a dark theme and darkens
+  it on a light one. Rows are grouped into a card per section, ruled by each row's own top border
+- Cells store resolved `uint` ARGB colours, not palette indices, so a theme change needs an
+  explicit recolour pass over both screens and the scrollback (`TerminalSurface.SetTheme`).
+  Without it, text already on screen keeps the old palette
+- **Every interactive surface on the settings page is a `SettingsButton`** - never a bare `Border`
+  with a `PointerPressed` handler. A `Border` is not focusable, so a hand-rolled one has no tab
+  stop, no Space/Enter and no focus visual. `Border.Render` is sealed, so the focus ring is the
+  button's own permanently-1px border with only its colour changing; never thicken it on focus, or
+  the layout shifts by a pixel
+- A theme change **rebuilds the page**, destroying the control the keyboard is on. `SettingsPage`
+  reads the focused button first and restores focus by the row's `Tag` (the setting id) afterwards
+- Secondary text is solved for contrast, not picked from the palette. `theme.Palette[8]` is a text
+  role on Latte and a surface role on the three dark flavours, so a fixed blend fails AA on some
+  palette whichever factor you choose. `OverlayTheme` scans the blend and takes the first amount
+  that reaches 4.5:1
+- The chrome brushes are published into `App.Resources` once and **mutated in place** afterwards.
+  Avalonia brushes are observable, so every control already holding one repaints without
+  reloading a dictionary
 
 ## Error Handling
 

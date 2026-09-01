@@ -12,7 +12,11 @@ public class VtParser
 
     // DECSC/DECRC registers, one per screen.
     readonly CursorRegisters cursors;
-    readonly Cell blank;
+
+    // The theme every default colour resolves from, and the cell the erase operations fill
+    // with. Both move when ApplyTheme swaps the theme under a running pane.
+    TerminalTheme theme;
+    Cell blank;
 
     // DEC private mode state, all of it held by DecModes except the alternate-screen
     // flag, which tracks which of the two buffers this parser is writing to.
@@ -52,11 +56,40 @@ public class VtParser
             enableScrollback: false
         );
         this.buffer = buffer;
+        this.theme = theme;
         pen = new SgrPen(theme);
         blank = new Cell(' ', theme.Foreground, theme.Background);
         osc = new OscHandler(theme, pen, reports.Reply);
         cursors = new CursorRegisters(alternateBuffer, pen);
     }
+
+    /// <summary>
+    /// Adopts a new theme across everything that resolved a colour from the old one: the pen,
+    /// the blank cell, the OSC defaults and palette, and the cells already on both screens.
+    /// Callers hold the buffer lock, because this rewrites the grid.
+    /// </summary>
+    public void ApplyTheme(TerminalTheme next)
+    {
+        var previous = theme;
+        if (ReferenceEquals(previous, next))
+        {
+            return;
+        }
+
+        theme = next;
+        blank = new Cell(' ', next.Foreground, next.Background);
+        pen.ApplyTheme(previous, next);
+        osc.ApplyTheme(next);
+        mainBuffer.ApplyTheme(previous, next);
+        alternateBuffer.ApplyTheme(previous, next);
+    }
+
+    /// <summary>Raised for every BEL (0x07) the program emits. What that should do - nothing,
+    /// a system sound, a flash - is the user's choice, so the parser only reports it.</summary>
+    public event Action? Bell;
+
+    /// <summary>Changes how many scrolled-off rows the main screen keeps.</summary>
+    public void SetScrollbackLines(int lines) => mainBuffer.Scrollback.Resize(lines);
 
     public void Resize(int columns, int rows)
     {
@@ -77,6 +110,10 @@ public class VtParser
                     }
                     break;
                 case VtToken.Control:
+                    if (tokenizer.Code == 0x07)
+                    {
+                        Bell?.Invoke();
+                    }
                     _ = ScreenCommands.TryExecuteControl(buffer, tokenizer.Code);
                     break;
                 case VtToken.Escape:

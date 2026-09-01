@@ -10,7 +10,7 @@ namespace Centaur.Core.Terminal;
 /// </summary>
 public sealed class OscHandler
 {
-    readonly TerminalTheme theme;
+    TerminalTheme theme;
     readonly SgrPen pen;
     readonly Action<string> reply;
 
@@ -25,6 +25,21 @@ public sealed class OscHandler
         for (int i = 0; i < Palette.Length; i++)
         {
             Palette[i] = theme.GetColor(i);
+        }
+    }
+
+    /// <summary>
+    /// Rebases the default colours and the 256-colour palette on a new theme. A theme change is
+    /// a deliberate reset, so any OSC 4/10/11 overrides a program had set are dropped with it.
+    /// </summary>
+    internal void ApplyTheme(TerminalTheme next)
+    {
+        theme = next;
+        DefaultForeground = next.Foreground;
+        DefaultBackground = next.Background;
+        for (var i = 0; i < Palette.Length; i++)
+        {
+            Palette[i] = next.GetColor(i);
         }
     }
 

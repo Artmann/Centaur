@@ -21,9 +21,11 @@ public class TerminalControl : Control, IPaneTerminal
 
     readonly ExtensionHost host;
     readonly INotificationService notifications;
-    readonly TerminalRenderer renderer;
     readonly RenderProfiler profiler;
     readonly PaneFrameLoop frames;
+
+    // The renderer, and the settings that decide what it looks like and what a BEL does.
+    readonly PaneAppearance appearance;
 
     // The screens, the scrollback view and the selection, behind the lock they share.
     readonly TerminalSurface surface;
@@ -46,13 +48,21 @@ public class TerminalControl : Control, IPaneTerminal
         notifications = services.Notifications;
 
         var theme = services.Theme;
+        var settings = services.Settings;
 
         profiler = services.Profiler;
-        renderer = new TerminalRenderer(theme, profiler: profiler);
+        var renderer = new TerminalRenderer(theme, TerminalAppearance.From(settings), profiler);
         frames = CreateFrameLoop(services.FpsOverlay);
 
-        surface = new TerminalSurface(theme, renderer, frames.MarkDirty);
-        shell = CreateShell(services.Settings, initialWorkingDirectory);
+        surface = new TerminalSurface(theme, renderer, frames.MarkDirty, settings.ScrollbackLines);
+        appearance = new PaneAppearance(
+            services,
+            surface,
+            renderer,
+            frames.MarkDirty,
+            InvalidateArrange
+        );
+        shell = CreateShell(settings, initialWorkingDirectory);
 
         suggestions = new InlineSuggestions(
             services.Suggestions,
@@ -63,9 +73,14 @@ public class TerminalControl : Control, IPaneTerminal
         input = new TerminalInput(shell, suggestions, host.Events, surface.Parser);
         mouse = new TerminalMouse(surface, shell);
         clipboard = new TerminalClipboard(this, surface, shell, notifications, frames.MarkDirty);
-        overlays = new TerminalOverlays(this, services, theme, input.RunCommand);
+        overlays = new TerminalOverlays(this, services, input.RunCommand);
         shortcuts = BuildShortcuts();
 
+        ConfigureInteraction();
+    }
+
+    void ConfigureInteraction()
+    {
         Focusable = true;
         ClipToBounds = true;
 
@@ -94,9 +109,14 @@ public class TerminalControl : Control, IPaneTerminal
     }
 
     // The two things that need frames without the terminal itself changing: overlays on their
-    // own clock, and the blink phase the loop advances for any cell carrying SGR 5/6.
+    // own clock, and the blink phase the loop advances for any cell carrying SGR 5/6 - or for
+    // the cursor, when the user has asked it to blink.
     PaneFrameLoop CreateFrameLoop(FpsOverlayExtension fpsOverlay) =>
-        new(this, () => fpsOverlay.Enabled || profiler.Enabled, () => renderer.HasBlinkingCells);
+        new(
+            this,
+            () => fpsOverlay.Enabled || profiler.Enabled,
+            () => appearance.Renderer.HasBlinkingCells || appearance.Renderer.CursorBlinks
+        );
 
     public event Action<SplitDirection>? SplitRequested;
     public event Action? CloseRequested;
@@ -114,8 +134,7 @@ public class TerminalControl : Control, IPaneTerminal
             .Add(Key.P, KeyModifiers.Control | KeyModifiers.Shift, ToggleProfiler)
             .Add(Key.C, KeyModifiers.Control, clipboard.CopyIfSelected)
             .Add(Key.V, KeyModifiers.Control, clipboard.Paste)
-            .Add(Key.R, KeyModifiers.Control, overlays.OpenReverseSearch)
-            .Add(Key.OemComma, KeyModifiers.Control, overlays.OpenSettings);
+            .Add(Key.R, KeyModifiers.Control, overlays.OpenReverseSearch);
     }
 
     ContextMenu BuildContextMenu()
@@ -151,6 +170,7 @@ public class TerminalControl : Control, IPaneTerminal
             return result;
         }
 
+        var renderer = appearance.Renderer;
         var newCols = Math.Max(1, (int)(width / renderer.cellWidth));
         var newRows = Math.Max(1, (int)(height / renderer.cellHeight));
 
@@ -202,7 +222,7 @@ public class TerminalControl : Control, IPaneTerminal
         }
         closed = true;
         shell.Stop();
-        renderer.Dispose();
+        appearance.Dispose();
     }
 
     // Called on the PTY read thread for every chunk the shell produced.
@@ -373,12 +393,13 @@ public class TerminalControl : Control, IPaneTerminal
             new TerminalDrawOperation(
                 bounds,
                 snapshot,
-                renderer,
+                appearance.Renderer,
                 surface.Selection.Normalized,
                 overlays,
                 cursorVisible: cursorVis,
                 readOnly: shell.IsReadOnly,
-                blinkVisible: frames.Blink.Visible
+                blinkVisible: frames.Blink.Visible,
+                bellFlash: appearance.BellFlashing
             )
         );
     }

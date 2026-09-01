@@ -40,11 +40,14 @@ public class ScreenBuffer
     /// <summary>Semantic-prompt mark per row (OSC 133).</summary>
     public PromptMarks Marks { get; }
 
+    public const int DefaultScrollbackLines = 10000;
+
     public ScreenBuffer(
         int columns,
         int rows,
         TerminalTheme? theme = null,
-        bool enableScrollback = true
+        bool enableScrollback = true,
+        int scrollbackLines = DefaultScrollbackLines
     )
         : this(
             columns,
@@ -54,15 +57,43 @@ public class ScreenBuffer
                 (theme ?? CatppuccinThemes.Macchiato).Foreground,
                 (theme ?? CatppuccinThemes.Macchiato).Background
             ),
-            enableScrollback
+            enableScrollback,
+            scrollbackLines
         ) { }
 
-    ScreenBuffer(int columns, int rows, Cell blank, bool enableScrollback)
+    ScreenBuffer(
+        int columns,
+        int rows,
+        Cell blank,
+        bool enableScrollback,
+        int scrollbackLines = DefaultScrollbackLines
+    )
     {
         grid = new CellGrid(columns, rows, blank);
-        Scrollback = new ScrollbackBuffer(enableScrollback ? 10000 : 0);
+        Scrollback = new ScrollbackBuffer(enableScrollback ? Math.Max(0, scrollbackLines) : 0);
         Marks = new PromptMarks(rows);
         Region = new ScrollRegion(grid, Scrollback);
+    }
+
+    /// <summary>
+    /// Recolours the grid and its history for a new theme. Only cells still carrying the old
+    /// theme's default foreground or background move - anything a program coloured explicitly
+    /// keeps the colour it asked for.
+    /// </summary>
+    public void ApplyTheme(TerminalTheme previous, TerminalTheme next)
+    {
+        Cell Map(Cell cell) =>
+            cell with
+            {
+                foreground =
+                    cell.foreground == previous.Foreground ? next.Foreground : cell.foreground,
+                background =
+                    cell.background == previous.Background ? next.Background : cell.background,
+            };
+
+        grid.Recolor(Map, new Cell(' ', next.Foreground, next.Background));
+        Scrollback.Recolor(Map);
+        snapshotBuffer = null;
     }
 
     public Cell this[int x, int y]
