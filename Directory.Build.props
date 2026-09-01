@@ -4,6 +4,6 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <!-- Single source of truth for the app version (reported by XTVERSION, stamped on assemblies). -->
-    <Version>1.1.1</Version>
+    <Version>1.2.0</Version>
   </PropertyGroup>
 </Project>
