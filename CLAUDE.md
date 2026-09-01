@@ -114,8 +114,14 @@ The codebase uses an **ExtensionHost** (`Centaur.Core.Hosting`) to manage compon
 - **Fluent styles controls through theme resources, not properties.** Setting `Background` or
   `Foreground` on a `TextBox`, `ComboBox`, `Slider` or `ToggleSwitch` leaves stock Fluent chrome
   bleeding through on hover and focus — `OverlayTheme.StyleTextBox` exists to stuff 21 resource
-  keys onto each box. The settings page uses a hand-rolled pill picker and numeric stepper
-  (a `Border` plus a `TextBlock`) rather than pay that cost three more times
+  keys onto each box. The settings page uses a hand-rolled segmented control, numeric stepper
+  and switch (each a `Border` plus a `TextBlock`) rather than pay that cost three more times
+- The settings page is a **page, not an overlay**: its labels use `OverlayControls.UiFont` via
+  `CreateUiLabel`, because the terminal's monospace makes an application surface read as terminal
+  output. Only the two boxes that hold code - the shell command and the folder path - stay mono
+- `OverlayTheme.Card` and `Hairline` are blended from the background **towards the foreground**
+  rather than taken from the palette, so one formula lightens the card on a dark theme and darkens
+  it on a light one. Rows are grouped into a card per section, ruled by each row's own top border
 - Cells store resolved `uint` ARGB colours, not palette indices, so a theme change needs an
   explicit recolour pass over both screens and the scrollback (`TerminalSurface.SetTheme`).
   Without it, text already on screen keeps the old palette

@@ -68,13 +68,13 @@ sealed class SettingsNav
 
     Border CreateEntry(SettingsTab tab)
     {
-        var label = OverlayControls.CreateLabel(tab.ToString(), 13);
+        var label = OverlayControls.CreateUiLabel(tab.ToString(), 13);
 
         var entry = new Border
         {
             Child = label,
-            Padding = new Thickness(12, 8),
-            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(10, 6),
+            CornerRadius = new CornerRadius(6),
             Cursor = new Cursor(StandardCursorType.Hand),
             Tag = tab,
         };

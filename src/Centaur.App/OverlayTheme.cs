@@ -27,6 +27,12 @@ sealed class OverlayTheme
         Accent = Brush(theme.Palette[4]); // Blue
         Error = Brush(theme.Palette[1]); // Red
         Selection = Brush(theme.Selection);
+
+        // Nudged towards the foreground rather than taken from the palette, so one formula
+        // works both ways round: on a light theme this darkens the card slightly against the
+        // page, on a dark one it lightens it. A palette entry would only ever do one of those.
+        Card = Blend(theme.Background, theme.Foreground, 0.06);
+        Hairline = Blend(theme.Background, theme.Foreground, 0.16);
     }
 
     /// <summary>Overlay backdrop, dimmed when the overlay was built with an opacity.</summary>
@@ -42,6 +48,12 @@ sealed class OverlayTheme
     public SolidColorBrush Error { get; }
     public SolidColorBrush Selection { get; }
 
+    /// <summary>Fill for the settings page's grouped cards, a shade off the page behind them.</summary>
+    public SolidColorBrush Card { get; }
+
+    /// <summary>The one-pixel rule around a card and between the rows inside it.</summary>
+    public SolidColorBrush Hairline { get; }
+
     public static SolidColorBrush Brush(uint color, double opacity = 1.0)
     {
         var c = Color.FromUInt32(color);
@@ -51,6 +63,21 @@ sealed class OverlayTheme
         }
 
         return new SolidColorBrush(c);
+    }
+
+    /// <summary>Mixes <paramref name="amount"/> of <paramref name="towards"/> into
+    /// <paramref name="color"/>, opaquely - these sit over the terminal, so a translucent
+    /// surface would show the panes through the settings page.</summary>
+    static SolidColorBrush Blend(uint color, uint towards, double amount)
+    {
+        var from = Color.FromUInt32(color);
+        var to = Color.FromUInt32(towards);
+
+        return new SolidColorBrush(
+            Color.FromRgb(Mix(from.R, to.R), Mix(from.G, to.G), Mix(from.B, to.B))
+        );
+
+        byte Mix(byte a, byte b) => (byte)Math.Round(a + ((b - a) * amount));
     }
 
     /// <summary>

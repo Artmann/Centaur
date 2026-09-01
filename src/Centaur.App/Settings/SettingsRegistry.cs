@@ -164,9 +164,8 @@ static class SettingsRegistry
             "Whether the cursor blinks while the pane has focus.",
             ["blink", "flash", "caret", "pulse"],
             context =>
-                SettingsControls.Choice(
+                SettingsControls.Toggle(
                     context.Colors,
-                    [(false, "Steady"), (true, "Blinking")],
                     context.Settings.CursorBlink,
                     value =>
                     {
@@ -223,7 +222,7 @@ static class SettingsRegistry
     {
         if (context.Themes.Count == 0)
         {
-            var empty = OverlayControls.CreateLabel("No themes are registered.", 12);
+            var empty = OverlayControls.CreateUiLabel("No themes are registered.", 12);
             empty.Foreground = context.Colors.Dim;
             return empty;
         }

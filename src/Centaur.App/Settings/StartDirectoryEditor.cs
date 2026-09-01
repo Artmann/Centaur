@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Centaur.Core.Terminal;
@@ -12,8 +13,8 @@ namespace Centaur.App;
 /// the specific-folder mode needs.
 ///
 /// The only setting with an editor of its own - three modes where one of them carries a value is
-/// more than a pill row can say. It writes straight through on every change, like the rest of the
-/// page, so there is no apply or cancel step for the page above to coordinate.
+/// more than a segmented control can say. It writes straight through on every change, like the
+/// rest of the page, so there is no apply or cancel step for the page above to coordinate.
 /// </summary>
 sealed class StartDirectoryEditor
 {
@@ -30,12 +31,15 @@ sealed class StartDirectoryEditor
         settings = context.Settings;
         colors = context.Colors;
 
-        folderTextBox = OverlayControls.CreateTextBox(new Thickness(0, 0, 0, 1));
+        folderTextBox = OverlayControls.CreateTextBox(new Thickness(1));
+        folderTextBox.FontSize = 12;
+        folderTextBox.Padding = new Thickness(8, 4);
+        folderTextBox.CornerRadius = new CornerRadius(6);
         folderTextBox.Text = settings.SpecificFolder;
         folderTextBox.TextChanged += OnFolderTextChanged;
-        colors.StyleTextBox(folderTextBox);
+        SettingsControls.StyleBox(colors, folderTextBox);
 
-        validationText = OverlayControls.CreateLabel("", 11);
+        validationText = OverlayControls.CreateUiLabel("", 12);
         validationText.Foreground = colors.Error;
         validationText.IsVisible = false;
         validationText.Margin = new Thickness(0, 4, 0, 0);
@@ -84,30 +88,34 @@ sealed class StartDirectoryEditor
         stack.Children.Add(folderTextBox);
         stack.Children.Add(validationText);
 
-        var input = new Panel { Margin = new Thickness(32, 4, 0, 0) };
+        var input = new Panel { Margin = new Thickness(30, 6, 0, 0) };
         input.Children.Add(stack);
         return input;
     }
 
     Border CreateOptionRow(string label, string description, StartDirectoryMode mode)
     {
-        var labelText = OverlayControls.CreateLabel(label, 13);
+        var labelText = OverlayControls.CreateUiLabel(label, 13);
+        labelText.Foreground = colors.Foreground;
 
-        var descText = OverlayControls.CreateLabel(description, 11);
-        descText.Opacity = 0.6;
+        var descText = OverlayControls.CreateUiLabel(description, 12);
+        descText.Foreground = colors.Dim;
         descText.Margin = new Thickness(0, 2, 0, 0);
 
-        var stack = new StackPanel();
-        stack.Children.Add(labelText);
-        stack.Children.Add(descText);
+        var text = new StackPanel();
+        text.Children.Add(labelText);
+        text.Children.Add(descText);
+
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        content.Children.Add(CreateRadio());
+        content.Children.Add(text);
 
         var border = new Border
         {
-            Padding = new Thickness(12, 10),
-            BorderThickness = new Thickness(3, 0, 0, 0),
-            CornerRadius = new CornerRadius(0, 4, 4, 0),
+            Padding = new Thickness(8, 7),
+            CornerRadius = new CornerRadius(6),
             Cursor = new Cursor(StandardCursorType.Hand),
-            Child = stack,
+            Child = content,
             Tag = mode,
         };
 
@@ -119,6 +127,29 @@ sealed class StartDirectoryEditor
 
         return border;
     }
+
+    /// <summary>
+    /// The dot that says which mode is chosen - three modes where exactly one holds is what a
+    /// radio says, and it says it without the row having to look like a button to be readable.
+    /// <see cref="PaintRow"/> colours it.
+    /// </summary>
+    static Border CreateRadio() =>
+        new()
+        {
+            Width = 15,
+            Height = 15,
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new Border
+            {
+                Width = 7,
+                Height = 7,
+                CornerRadius = new CornerRadius(4),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
 
     void SelectOption(StartDirectoryMode mode)
     {
@@ -148,24 +179,17 @@ sealed class StartDirectoryEditor
     /// <summary>Applies the selected or unselected look to one option row in place.</summary>
     void PaintRow(Border row, bool isSelected)
     {
-        row.Background = isSelected ? colors.Selection : Brushes.Transparent;
-        row.BorderBrush = isSelected ? colors.Accent : Brushes.Transparent;
-
-        if (row.Child is not StackPanel stack)
+        if (row.Child is not StackPanel content || content.Children[0] is not Border radio)
         {
             return;
         }
 
-        var brush = isSelected ? colors.Foreground : colors.Dim;
-        if (stack.Children[0] is TextBlock label)
-        {
-            label.Foreground = brush;
-        }
+        radio.BorderBrush = isSelected ? colors.Accent : colors.Dim;
 
-        if (stack.Children[1] is TextBlock description)
+        if (radio.Child is Border dot)
         {
-            description.Foreground = brush;
-            description.Opacity = isSelected ? 0.7 : 0.6;
+            dot.Background = colors.Accent;
+            dot.IsVisible = isSelected;
         }
     }
 

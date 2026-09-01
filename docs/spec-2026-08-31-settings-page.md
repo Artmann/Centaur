@@ -69,7 +69,7 @@ made every row match everything.
 | `Settings/SettingsPage.cs` | Chrome: header, search box, sidebar host, scrolling content, `Show`/`Hide`, `ApplyTheme` |
 | `Settings/SettingsNav.cs` | Sidebar tab list, selection visual, `TabSelected` |
 | `Settings/SettingsSearch.cs` | `FuzzyMatcher` over descriptors; filtered and ranked ids |
-| `Settings/SettingsControls.cs` | Row and section factories, the pill picker and the numeric stepper |
+| `Settings/SettingsControls.cs` | Section, card and row factories, plus the segmented control, stepper and switch |
 | `Settings/StartDirectoryEditor.cs` | The old `StartDirectorySection`, reshaped as one descriptor's bespoke editor |
 
 `SettingsOverlay.cs` and `StartDirectorySection.cs` are deleted, and `TerminalOverlays` loses its
@@ -177,5 +177,14 @@ background while the terminal's own glyphs stay opaque. The control ships enable
 **Fluent styles controls through theme resources, not properties.** `OverlayTheme.StyleTextBox`
 has to stuff 21 resource keys onto each box for this reason, the last three being the watermark
 brush. `ComboBox`, `Slider` and `ToggleSwitch` would each need equivalent treatment, so the page
-uses a hand-rolled pill picker and numeric stepper instead — both are a `Border` and a
-`TextBlock`, and both take their colours from `OverlayTheme` directly.
+uses a hand-rolled segmented control, numeric stepper and switch instead — each is a `Border`
+and a `TextBlock`, and each takes its colours from `OverlayTheme` directly.
+
+**A page has to stop looking like the terminal.** The first cut rendered every label in the
+terminal's monospace, which made a settings page read as terminal output. The labels moved to
+`OverlayControls.UiFont`, and only the two boxes that hold code — the shell command and the folder
+path — stayed monospace. The rows then grouped into one rounded card per section, ruled between
+rows and headed by a small dim sentence-case label, which is the shape desktop settings pages have
+settled on. `OverlayTheme.Card` and `Hairline` are blended from the background towards the
+foreground rather than picked from the palette, so the same formula lightens the card on a dark
+theme and darkens it on a light one.

@@ -16,69 +16,86 @@ sealed record NumberRange(double Minimum, double Maximum, double Step, int Decim
 ///
 /// They are hand-rolled out of <see cref="Border"/> and <see cref="TextBox"/> rather than taken
 /// from Fluent, for the reason <see cref="OverlayTheme.StyleTextBox"/> documents: Fluent styles
-/// its controls through theme resources rather than properties, so a stock ComboBox or Slider
-/// would need a dozen resource keys stuffed into it per state and would still not match the
-/// terminal's own look. A pill and a stepper are less code than that, and they theme from the
-/// palette like everything else here.
+/// its controls through theme resources rather than properties, so a stock ComboBox, Slider or
+/// ToggleSwitch would need a dozen resource keys stuffed into it per state and would still not
+/// theme from the terminal's palette. A segment, a stepper and a switch are less code than that.
+///
+/// The shape they make is the one every desktop settings page makes: a dim label naming a
+/// section, then a rounded card holding that section's rows, each row a title and a description
+/// on the left and a small control on the right.
 /// </summary>
 static class SettingsControls
 {
-    /// <summary>A group heading within a tab.</summary>
+    /// <summary>
+    /// Marks a section heading. The tests find headings by this rather than by font metrics,
+    /// which any restyle moves.
+    /// </summary>
+    public const string SectionHeaderTag = "settings-section-header";
+
+    /// <summary>The dim label naming the card beneath it.</summary>
     public static TextBlock SectionHeader(string text, OverlayTheme colors)
     {
-        var header = OverlayControls.CreateLabel(text.ToUpperInvariant(), 11, FontWeight.Bold);
-        header.Foreground = colors.Accent;
-        header.Margin = new Thickness(0, 24, 0, 8);
-        header.Opacity = 0.9;
+        var header = OverlayControls.CreateUiLabel(text, 12);
+        header.Foreground = colors.Dim;
+        header.Margin = new Thickness(2, 2, 0, 8);
+        header.Tag = SectionHeaderTag;
         return header;
     }
 
-    /// <summary>Title and description on the left, the editor on the right.</summary>
-    public static Control Row(SettingDescriptor setting, Control editor, OverlayTheme colors)
+    /// <summary>Groups one section's rows into a single card, ruled between the rows.</summary>
+    public static Control Card(IReadOnlyList<Control> rows, OverlayTheme colors)
     {
-        var title = OverlayControls.CreateLabel(setting.Title, 13);
+        var stack = new StackPanel();
+
+        foreach (var row in rows)
+        {
+            // The rule between rows is drawn as the row's own top border, so the card needs no
+            // separator elements interleaved with its children.
+            if (stack.Children.Count > 0 && row is Border bordered)
+            {
+                bordered.BorderBrush = colors.Hairline;
+                bordered.BorderThickness = new Thickness(0, 1, 0, 0);
+            }
+
+            stack.Children.Add(row);
+        }
+
+        return new Border
+        {
+            Child = stack,
+            Background = colors.Card,
+            BorderBrush = colors.Hairline,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Margin = new Thickness(0, 0, 0, 20),
+        };
+    }
+
+    /// <summary>Title and description on the left, the editor on the right.</summary>
+    public static Border Row(SettingDescriptor setting, Control editor, OverlayTheme colors)
+    {
+        var title = OverlayControls.CreateUiLabel(setting.Title, 13);
         title.Foreground = colors.Foreground;
 
-        var description = OverlayControls.CreateLabel(setting.Description, 11);
+        var description = OverlayControls.CreateUiLabel(setting.Description, 12);
         description.Foreground = colors.Dim;
-        description.Margin = new Thickness(0, 3, 0, 0);
+        description.Margin = new Thickness(0, 2, 0, 0);
         description.TextWrapping = TextWrapping.Wrap;
 
         var text = new StackPanel();
         text.Children.Add(title);
         text.Children.Add(description);
 
-        // A tall editor - the start-directory list - reads better beneath its label than
-        // squeezed into a right-hand column.
-        if (setting.FullWidth)
+        return new Border
         {
-            editor.HorizontalAlignment = HorizontalAlignment.Stretch;
-            editor.Margin = new Thickness(0, 10, 0, 0);
-
-            var stacked = new StackPanel { Margin = new Thickness(0, 10) };
-            stacked.Children.Add(text);
-            stacked.Children.Add(editor);
-            return stacked;
-        }
-
-        text.Margin = new Thickness(0, 0, 24, 0);
-        editor.HorizontalAlignment = HorizontalAlignment.Right;
-        editor.VerticalAlignment = VerticalAlignment.Top;
-
-        var grid = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-            Margin = new Thickness(0, 10),
+            Padding = new Thickness(14, 11),
+            Child = setting.FullWidth ? Stacked(text, editor) : SideBySide(text, editor),
         };
-        Grid.SetColumn(editor, 1);
-        grid.Children.Add(text);
-        grid.Children.Add(editor);
-        return grid;
     }
 
     /// <summary>
-    /// A row of pills, one per choice, with the current one filled. Stands in for both a
-    /// dropdown and a checkbox: the options are few and naming them all beats hiding them
+    /// A segmented control, one segment per choice, with the current one filled. Stands in for
+    /// both a dropdown and a checkbox: the options are few and naming them all beats hiding them
     /// behind a popup on a page whose whole point is discoverability.
     /// </summary>
     public static Control Choice<T>(
@@ -89,25 +106,25 @@ static class SettingsControls
     )
         where T : notnull
     {
-        var row = new WrapPanel { Orientation = Orientation.Horizontal };
-        var pills = new List<Border>(options.Count);
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        var segments = new List<Border>(options.Count);
         var selected = current;
 
         foreach (var (value, label) in options)
         {
-            var pill = CreatePill(label, value);
-            pill.PointerPressed += (_, e) =>
+            var segment = CreateSegment(label, value);
+            segment.PointerPressed += (_, e) =>
             {
                 e.Handled = true;
                 Choose(value);
             };
 
-            pills.Add(pill);
-            row.Children.Add(pill);
+            segments.Add(segment);
+            row.Children.Add(segment);
         }
 
-        PaintPills(colors, pills, selected);
-        return row;
+        PaintSegments(colors, segments, selected);
+        return Frame(colors, row);
 
         void Choose(T chosen)
         {
@@ -117,11 +134,56 @@ static class SettingsControls
             }
 
             // Repainted before the write, because the write may not come back: only a theme
-            // change rebuilds the page, and every other setting leaves these pills as they are.
+            // change rebuilds the page, and every other setting leaves these as they are.
             selected = chosen;
-            PaintPills(colors, pills, selected);
+            PaintSegments(colors, segments, selected);
             select(chosen);
         }
+    }
+
+    /// <summary>An on/off switch, for the settings where naming both states would say less than
+    /// the switch itself does.</summary>
+    public static Control Toggle(OverlayTheme colors, bool current, Action<bool> commit)
+    {
+        var knob = new Border
+        {
+            Width = 14,
+            Height = 14,
+            CornerRadius = new CornerRadius(7),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var track = new Border
+        {
+            Child = knob,
+            Width = 38,
+            Height = 22,
+            CornerRadius = new CornerRadius(11),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(3, 0),
+            Cursor = new Cursor(StandardCursorType.Hand),
+        };
+
+        track.PointerPressed += (_, e) =>
+        {
+            e.Handled = true;
+            current = !current;
+            PaintToggle(colors, track, knob, current);
+            commit(current);
+        };
+
+        PaintToggle(colors, track, knob, current);
+        return track;
+    }
+
+    /// <summary>The switch's two states: filled with the knob to the right when on, outlined
+    /// with the knob to the left when off.</summary>
+    static void PaintToggle(OverlayTheme colors, Border track, Border knob, bool on)
+    {
+        track.Background = on ? colors.Accent : Brushes.Transparent;
+        track.BorderBrush = on ? colors.Accent : colors.Dim;
+        knob.Background = on ? colors.Surface : colors.Dim;
+        knob.HorizontalAlignment = on ? HorizontalAlignment.Right : HorizontalAlignment.Left;
     }
 
     /// <summary>
@@ -136,16 +198,16 @@ static class SettingsControls
         Action<double> commit
     )
     {
-        var value = OverlayControls.CreateLabel(Format(current, range.Decimals), 13);
+        var value = OverlayControls.CreateUiLabel(Format(current, range.Decimals), 12);
         value.Foreground = colors.Foreground;
         value.HorizontalAlignment = HorizontalAlignment.Center;
         value.VerticalAlignment = VerticalAlignment.Center;
 
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
         row.Children.Add(CreateStep(colors, "−", () => Nudge(-range.Step)));
         row.Children.Add(CreateDisplay(colors, value));
         row.Children.Add(CreateStep(colors, "+", () => Nudge(range.Step)));
-        return row;
+        return Frame(colors, row);
 
         void Nudge(double delta)
         {
@@ -168,40 +230,101 @@ static class SettingsControls
     }
 
     /// <summary>A single-line text setting, written through on every keystroke like the rest
-    /// of the page.</summary>
+    /// of the page. Stays monospace: it holds a command, not prose.</summary>
     public static TextBox Text(OverlayTheme colors, string current, Action<string> commit)
     {
         var box = OverlayControls.CreateTextBox(new Thickness(1));
-        box.Width = 240;
+        box.Width = 220;
+        box.FontSize = 12;
+        box.Padding = new Thickness(8, 4);
+        box.CornerRadius = new CornerRadius(6);
         box.Text = current;
-        colors.StyleTextBox(box);
+        StyleBox(colors, box);
         box.TextChanged += (_, _) => commit(box.Text ?? "");
         return box;
     }
 
-    static Border CreatePill<T>(string label, T value)
+    /// <summary>
+    /// Paints a box to match the page. The overlay styling it builds on makes every border state
+    /// transparent, because an overlay draws its own frame around the box; here the box is the
+    /// frame, so the state resources are painted back in - without them Fluent's focused state
+    /// wins and the outline vanishes the moment the box is clicked into.
+    /// </summary>
+    public static void StyleBox(OverlayTheme colors, TextBox box)
+    {
+        colors.StyleTextBox(box);
+        OverlayTheme.StyleTextBox(
+            box,
+            Brushes.Transparent,
+            colors.Foreground,
+            colors.Hairline,
+            colors.Accent
+        );
+    }
+
+    /// <summary>The outline the segmented control and the stepper share, so a row holding one
+    /// of each reads as one family of control.</summary>
+    static Border Frame(OverlayTheme colors, Control child) =>
+        new()
+        {
+            Child = child,
+            Background = Brushes.Transparent,
+            BorderBrush = colors.Hairline,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(2),
+        };
+
+    static StackPanel Stacked(Control text, Control editor)
+    {
+        editor.HorizontalAlignment = HorizontalAlignment.Stretch;
+        editor.Margin = new Thickness(0, 10, 0, 0);
+
+        var stacked = new StackPanel();
+        stacked.Children.Add(text);
+        stacked.Children.Add(editor);
+        return stacked;
+    }
+
+    static Grid SideBySide(Control text, Control editor)
+    {
+        text.Margin = new Thickness(0, 0, 20, 0);
+        text.VerticalAlignment = VerticalAlignment.Center;
+        editor.HorizontalAlignment = HorizontalAlignment.Right;
+        editor.VerticalAlignment = VerticalAlignment.Center;
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        Grid.SetColumn(editor, 1);
+        grid.Children.Add(text);
+        grid.Children.Add(editor);
+        return grid;
+    }
+
+    static Border CreateSegment<T>(string label, T value)
         where T : notnull =>
         new()
         {
-            Child = OverlayControls.CreateLabel(label, 12),
-            Padding = new Thickness(12, 6),
-            Margin = new Thickness(0, 0, 6, 6),
+            Child = OverlayControls.CreateUiLabel(label, 12),
+            Padding = new Thickness(10, 3),
             CornerRadius = new CornerRadius(4),
             BorderThickness = new Thickness(1),
             Cursor = new Cursor(StandardCursorType.Hand),
             Tag = value,
         };
 
-    static void PaintPills<T>(OverlayTheme colors, List<Border> pills, T selected)
+    static void PaintSegments<T>(OverlayTheme colors, List<Border> segments, T selected)
         where T : notnull
     {
-        foreach (var pill in pills)
+        foreach (var segment in segments)
         {
-            var isSelected = EqualityComparer<T>.Default.Equals((T)pill.Tag!, selected);
-            pill.Background = isSelected ? colors.Selection : Brushes.Transparent;
-            pill.BorderBrush = isSelected ? colors.Accent : colors.Dim;
+            var isSelected = EqualityComparer<T>.Default.Equals((T)segment.Tag!, selected);
+            segment.Background = isSelected ? colors.Selection : Brushes.Transparent;
 
-            if (pill.Child is TextBlock label)
+            // Outlined as well as filled: on a light palette the selection tint alone is barely
+            // a shade off the card behind it, and the chosen segment stops reading as chosen.
+            segment.BorderBrush = isSelected ? colors.Hairline : Brushes.Transparent;
+
+            if (segment.Child is TextBlock label)
             {
                 label.Foreground = isSelected ? colors.Foreground : colors.Dim;
             }
@@ -212,17 +335,15 @@ static class SettingsControls
         new()
         {
             Child = value,
-            MinWidth = 78,
-            Padding = new Thickness(10, 6),
-            Background = colors.Selection,
-            BorderBrush = colors.Dim,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
+            MinWidth = 52,
+            Padding = new Thickness(6, 3),
+            BorderBrush = colors.Hairline,
+            BorderThickness = new Thickness(1, 0),
         };
 
     static Border CreateStep(OverlayTheme colors, string glyph, Action nudge)
     {
-        var label = OverlayControls.CreateLabel(glyph, 14);
+        var label = OverlayControls.CreateUiLabel(glyph, 13);
         label.Foreground = colors.Foreground;
         label.HorizontalAlignment = HorizontalAlignment.Center;
         label.VerticalAlignment = VerticalAlignment.Center;
@@ -230,11 +351,8 @@ static class SettingsControls
         var button = new Border
         {
             Child = label,
-            Width = 30,
-            Padding = new Thickness(0, 6),
+            Width = 24,
             Background = Brushes.Transparent,
-            BorderBrush = colors.Dim,
-            BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(4),
             Cursor = new Cursor(StandardCursorType.Hand),
         };

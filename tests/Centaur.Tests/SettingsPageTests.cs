@@ -15,7 +15,7 @@ namespace Centaur.Tests;
 
 /// <summary>
 /// The settings page driven through the controls a user actually touches: the sidebar, the
-/// search box and the option pills. The rows are built from
+/// search box and the option segments. The rows are built from
 /// <see cref="SettingsRegistry"/>, so these assertions hold for settings added later too.
 /// </summary>
 public class SettingsPageTests : TempDirectory
@@ -29,8 +29,8 @@ public class SettingsPageTests : TempDirectory
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(page.IsOpen);
-        Assert.Contains("SHELL", Headings(page));
-        Assert.DoesNotContain("CURSOR", Headings(page));
+        Assert.Contains("Shell", Headings(page));
+        Assert.DoesNotContain("Cursor", Headings(page));
     }
 
     [AvaloniaFact]
@@ -42,8 +42,8 @@ public class SettingsPageTests : TempDirectory
 
         Click(NavEntry(page, "Appearance"), window);
 
-        Assert.Contains("CURSOR", Headings(page));
-        Assert.DoesNotContain("SHELL", Headings(page));
+        Assert.Contains("Cursor", Headings(page));
+        Assert.DoesNotContain("Shell", Headings(page));
     }
 
     [AvaloniaFact]
@@ -59,8 +59,8 @@ public class SettingsPageTests : TempDirectory
         // The General tab is the one open, so an Appearance heading can only have come from
         // the search spanning both.
         var headings = Headings(page);
-        Assert.Contains(headings, h => h.StartsWith("APPEARANCE", StringComparison.Ordinal));
-        Assert.Contains(headings, h => h.StartsWith("GENERAL", StringComparison.Ordinal));
+        Assert.Contains(headings, h => h.StartsWith("Appearance", StringComparison.Ordinal));
+        Assert.Contains(headings, h => h.StartsWith("General", StringComparison.Ordinal));
     }
 
     [AvaloniaFact]
@@ -107,7 +107,7 @@ public class SettingsPageTests : TempDirectory
         Dispatcher.UIThread.RunJobs();
         Click(NavEntry(page, "Appearance"), window);
 
-        Click(Pill(page, "Latte"), window);
+        Click(Segment(page, "Latte"), window);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("catppuccin-latte", settings.ThemeId);
@@ -122,7 +122,7 @@ public class SettingsPageTests : TempDirectory
         Dispatcher.UIThread.RunJobs();
         Click(NavEntry(page, "Appearance"), window);
 
-        Click(Pill(page, "Underline"), window);
+        Click(Segment(page, "Underline"), window);
 
         Assert.Equal(CursorStyle.Underline, settings.CursorStyle);
     }
@@ -163,11 +163,11 @@ public class SettingsPageTests : TempDirectory
         page.GetVisualDescendants().OfType<TextBox>().First(b => b.Watermark == "Search settings");
 
     /// <summary>The section headings currently rendered, which is what the page shows of its
-    /// filtering.</summary>
+    /// filtering. Found by tag rather than by font metrics, which a restyle moves.</summary>
     static string[] Headings(SettingsPage page) =>
         page.GetVisualDescendants()
             .OfType<TextBlock>()
-            .Where(t => t.FontWeight == FontWeight.Bold && t.FontSize == 11)
+            .Where(t => (t.Tag as string) == SettingsControls.SectionHeaderTag)
             .Select(t => t.Text ?? "")
             .ToArray();
 
@@ -176,10 +176,10 @@ public class SettingsPageTests : TempDirectory
 
     static Border NavEntry(SettingsPage page, string name) => Chip(page, name);
 
-    static Border Pill(SettingsPage page, string label) => Chip(page, label);
+    static Border Segment(SettingsPage page, string label) => Chip(page, label);
 
     /// <summary>The Border whose only child is a label reading <paramref name="text"/>. The nav
-    /// entries and the option pills share that shape, so they are found the same way.</summary>
+    /// entries and the option segments share that shape, so they are found the same way.</summary>
     static Border Chip(SettingsPage page, string text)
     {
         var matches = page.GetVisualDescendants()
